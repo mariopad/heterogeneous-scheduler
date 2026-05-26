@@ -1,0 +1,725 @@
+# Distributed Heterogeneous Scheduler — TFM
+
+## Overview
+
+This project explores **task scheduling strategies in heterogeneous distributed systems** using a real home-lab cluster composed of low-power ARM devices, legacy CPUs, laptops, desktop workstations and GPU-capable nodes.
+
+The goal is to design, implement and evaluate a distributed scheduler capable of assigning workloads efficiently depending on:
+
+* node capabilities
+* workload characteristics
+* current system load
+* energy/performance tradeoffs
+
+The project begins with classical scheduling policies and evolves toward adaptive and machine-learning-assisted scheduling strategies.
+
+---
+
+# Core Research Question
+
+> How does hardware heterogeneity affect scheduling strategies in distributed systems, and can machine-learning-assisted scheduling outperform classical heuristics in heterogeneous edge/home-lab environments?
+
+---
+
+# High-Level Objectives
+
+* Build a distributed execution framework using Docker containers
+* Create a scheduler capable of assigning jobs to heterogeneous nodes
+* Compare classical scheduling strategies:
+
+  * Round Robin
+  * Least Loaded
+  * Weighted Scheduling
+  * Capability-Aware Scheduling
+* Benchmark multiple workload types:
+
+  * CPU-bound
+  * Memory-bound
+  * IO-bound
+  * GPU-bound
+* Collect runtime metrics and energy estimations
+* Implement predictive scheduling using ML models
+* Evaluate tradeoffs:
+
+  * throughput
+  * latency
+  * makespan
+  * energy efficiency
+  * resource utilization
+
+---
+
+# Hardware Cluster
+
+| Device               | Role                       |
+| -------------------- | -------------------------- |
+| Old i3 desktop       | Low-end CPU node           |
+| PS4 Jailbroken       | Experimental node          |
+| Jetson Nano 2GB      | ARM + CUDA edge node       |
+| Raspberry Pi 4 4GB   | ARM low-power node         |
+| Ryzen 2700U laptop   | Mid-tier mobile node       |
+| Ryzen 5600X + RX6600 | Main high-performance node |
+
+---
+
+# Initial Philosophy
+
+The project should prioritize:
+
+* rapid iteration
+* observability
+* reproducibility
+* measurable experiments
+
+NOT:
+
+* production-grade orchestration
+* Kubernetes complexity
+* distributed consensus
+* fault tolerance at scale
+
+The infrastructure is only a means to evaluate scheduling strategies.
+
+---
+
+# Architectural Vision
+
+```text
+                 +----------------------+
+                 |      Scheduler       |
+                 |----------------------|
+                 | Scheduling Policies  |
+                 | Metrics DB           |
+                 | ML Predictor         |
+                 | REST API             |
+                 +----------+-----------+
+                            |
+       ------------------------------------------------
+       |                |                |            |
+ +-----+-----+    +-----+-----+    +-----+-----+ +----+----+
+ |   Agent   |    |   Agent   |    |   Agent   | | Agent   |
+ |  Ryzen    |    | Raspberry |    | Jetson    | | Laptop  |
+ +-----------+    +-----------+    +-----------+ +---------+
+```
+
+---
+
+# Main Components
+
+## Scheduler
+
+Central decision-making service.
+
+Responsibilities:
+
+* receive node heartbeats
+* store node metrics
+* receive jobs
+* select best node
+* dispatch workloads
+* collect execution statistics
+
+---
+
+## Agents
+
+Runs on every node.
+
+Responsibilities:
+
+* collect metrics
+* execute jobs
+* report node capabilities
+* benchmark local hardware
+* report execution results
+
+---
+
+## Jobs
+
+Containerized reproducible workloads.
+
+Examples:
+
+* matrix multiplication
+* compression
+* dataframe processing
+* GPU inference
+
+---
+
+# Recommended Stack
+
+## Core
+
+* Python 3.11+
+* Docker
+* FastAPI
+* asyncio
+
+---
+
+## Metrics
+
+* Prometheus
+* Grafana
+
+---
+
+## Persistence
+
+Initially:
+
+* SQLite
+
+Later:
+
+* PostgreSQL
+
+---
+
+## ML
+
+* scikit-learn
+* XGBoost
+
+---
+
+# Repository Structure
+
+```text
+distributed-scheduler/
+│
+├── README.md
+│
+├── scheduler/
+│   ├── main.py
+│   ├── api/
+│   ├── policies/
+│   │   ├── round_robin.py
+│   │   ├── least_loaded.py
+│   │   ├── weighted.py
+│   │   └── capability_aware.py
+│   │
+│   ├── dispatcher/
+│   ├── database/
+│   ├── models/
+│   └── services/
+│
+├── agent/
+│   ├── main.py
+│   ├── metrics.py
+│   ├── benchmark.py
+│   ├── executor.py
+│   └── node_profile.py
+│
+├── jobs/
+│   ├── cpu_job/
+│   ├── memory_job/
+│   ├── io_job/
+│   └── gpu_job/
+│
+├── monitoring/
+│   ├── prometheus/
+│   └── grafana/
+│
+├── experiments/
+│   ├── datasets/
+│   ├── notebooks/
+│   └── results/
+│
+├── ml/
+│   ├── training/
+│   ├── prediction/
+│   └── models/
+│
+└── docker-compose.yml
+```
+
+---
+
+# Development Roadmap
+
+# PHASE 0 — Infrastructure Setup
+
+## Goal
+
+Prepare all nodes for distributed experimentation.
+
+---
+
+## Tasks
+
+### Linux Environment
+
+* [ ] Update all systems
+* [ ] Configure SSH access
+* [ ] Create shared SSH keys
+* [ ] Ensure hostname uniqueness
+
+---
+
+### Docker Installation
+
+* [ ] Install Docker on all nodes
+* [ ] Enable Docker daemon
+* [ ] Test Docker execution
+* [ ] Enable remote Docker API (later)
+
+---
+
+### Networking
+
+* [ ] Assign static local IPs
+* [ ] Verify node connectivity
+* [ ] Create inventory of nodes
+
+---
+
+### Multi-Architecture Validation
+
+* [ ] Verify ARM compatibility
+* [ ] Test multiarch Docker images
+* [ ] Validate Python environments
+
+---
+
+# PHASE 1 — Minimal Distributed System
+
+## Goal
+
+Create a working distributed scheduler MVP.
+
+---
+
+## Scheduler Tasks
+
+* [ ] Create FastAPI server
+* [ ] Implement `/heartbeat`
+* [ ] Implement `/nodes`
+* [ ] Store node metrics in memory
+* [ ] Add timestamp support
+
+---
+
+## Agent Tasks
+
+* [ ] Collect CPU usage
+* [ ] Collect RAM usage
+* [ ] Send periodic heartbeats
+* [ ] Identify node hostname
+* [ ] Report architecture
+
+---
+
+## Validation
+
+* [ ] Connect at least 2 nodes
+* [ ] Verify scheduler visibility
+* [ ] Test heartbeat intervals
+
+---
+
+# PHASE 2 — Remote Job Execution
+
+## Goal
+
+Execute workloads remotely using Docker.
+
+---
+
+## Tasks
+
+* [ ] Enable Docker remote execution
+* [ ] Create Docker execution wrapper
+* [ ] Implement job dispatching
+* [ ] Receive execution results
+* [ ] Log execution timestamps
+
+---
+
+## Initial Workloads
+
+### CPU Bound
+
+* [ ] Matrix multiplication
+* [ ] Prime number computation
+
+---
+
+### IO Bound
+
+* [ ] File compression
+* [ ] Log parsing
+
+---
+
+### Memory Bound
+
+* [ ] Large dataframe sorting
+* [ ] Dataset joins
+
+---
+
+### GPU Bound
+
+* [ ] TensorRT inference
+* [ ] Tiny YOLO inference
+
+---
+
+# PHASE 3 — Scheduling Policies
+
+## Goal
+
+Implement and compare classical schedulers.
+
+---
+
+## Policies
+
+### Round Robin
+
+* [ ] Implement circular scheduling
+* [ ] Measure fairness
+
+---
+
+### Least Loaded
+
+* [ ] Compute effective load
+* [ ] Select least busy node
+
+---
+
+### Weighted Scheduling
+
+* [ ] Define node weights
+* [ ] Normalize capacity scores
+
+Example:
+
+| Node         | Weight |
+| ------------ | ------ |
+| Ryzen 5600X  | 10     |
+| Ryzen 2700U  | 5      |
+| i3 Desktop   | 3      |
+| Raspberry Pi | 1      |
+
+---
+
+### Capability-Aware Scheduling
+
+* [ ] Detect GPU nodes
+* [ ] Detect ARM/x86 compatibility
+* [ ] Match workload requirements
+
+---
+
+# PHASE 4 — Monitoring and Observability
+
+## Goal
+
+Visualize system behavior.
+
+---
+
+## Metrics to Track
+
+### Node Metrics
+
+* [ ] CPU usage
+* [ ] RAM usage
+* [ ] Temperature
+* [ ] Running jobs
+* [ ] Docker stats
+
+---
+
+### Scheduler Metrics
+
+* [ ] Queue size
+* [ ] Scheduling latency
+* [ ] Throughput
+* [ ] Failure rate
+
+---
+
+### Job Metrics
+
+* [ ] Waiting time
+* [ ] Execution time
+* [ ] Completion time
+* [ ] Retry count
+
+---
+
+## Monitoring Stack
+
+* [ ] Configure Prometheus
+* [ ] Configure Grafana
+* [ ] Create dashboards
+* [ ] Export scheduler metrics
+
+---
+
+# PHASE 5 — Benchmarking and Experimental Dataset
+
+## Goal
+
+Generate reproducible experimental data.
+
+---
+
+## Benchmark Tasks
+
+* [ ] Create standardized workloads
+* [ ] Define dataset sizes
+* [ ] Automate repeated executions
+* [ ] Export CSV results
+
+---
+
+## Node Benchmarking
+
+### CPU
+
+* [ ] NumPy benchmark
+* [ ] Sysbench
+* [ ] LINPACK
+
+---
+
+### Memory
+
+* [ ] Sequential access
+* [ ] Random access
+
+---
+
+### IO
+
+* [ ] Disk throughput
+* [ ] Compression throughput
+
+---
+
+### GPU
+
+* [ ] CUDA inference benchmark
+* [ ] Tensor throughput
+
+---
+
+# PHASE 6 — Energy Awareness
+
+## Goal
+
+Evaluate energy/performance tradeoffs.
+
+---
+
+## Hardware
+
+* [ ] Acquire smart plug
+* [ ] Measure idle consumption
+* [ ] Measure max-load consumption
+* [ ] Build node energy profiles
+
+---
+
+## Estimated Energy Profiles
+
+| Node         | Idle | Full Load |
+| ------------ | ---- | --------- |
+| Ryzen 5600X  | ~55W | ~220W     |
+| Jetson Nano  | ~4W  | ~12W      |
+| Raspberry Pi | ~3W  | ~6W       |
+
+---
+
+## Scheduler Extensions
+
+* [ ] Compute performance-per-watt
+* [ ] Add energy-aware policy
+* [ ] Compare energy efficiency
+
+---
+
+# PHASE 7 — Machine Learning Scheduler
+
+## Goal
+
+Predict optimal node placement.
+
+---
+
+# Dataset
+
+## Features
+
+* [ ] task type
+* [ ] input size
+* [ ] node architecture
+* [ ] CPU score
+* [ ] RAM
+* [ ] current load
+* [ ] GPU availability
+
+---
+
+## Targets
+
+* [ ] execution time
+* [ ] energy consumption
+* [ ] completion latency
+
+---
+
+# Models
+
+## Initial Models
+
+* [ ] Linear Regression
+* [ ] Random Forest
+* [ ] XGBoost
+
+---
+
+# ML Scheduling Strategy
+
+Example:
+
+```text
+Choose node with minimum predicted completion time
+```
+
+---
+
+# PHASE 8 — Experimental Evaluation
+
+## Goal
+
+Produce scientific comparison results.
+
+---
+
+# Experiments
+
+## Compare Policies
+
+* [ ] Round Robin
+* [ ] Least Loaded
+* [ ] Weighted
+* [ ] Capability-Aware
+* [ ] ML Scheduler
+
+---
+
+# Metrics
+
+| Metric            | Description           |
+| ----------------- | --------------------- |
+| Makespan          | Total completion time |
+| Throughput        | Jobs per second       |
+| Latency           | Per-job completion    |
+| Utilization       | Resource efficiency   |
+| Fairness          | Load distribution     |
+| Energy Efficiency | Performance per watt  |
+
+---
+
+# Final Deliverables
+
+* [ ] Working distributed scheduler
+* [ ] Experimental dataset
+* [ ] Benchmark suite
+* [ ] Monitoring dashboards
+* [ ] Comparative evaluation
+* [ ] ML scheduling model
+* [ ] Thesis document
+
+---
+
+# Important Design Principles
+
+## Keep Infrastructure Simple
+
+Avoid:
+
+* Kubernetes
+* Raft
+* Consul
+* Terraform
+* complex orchestration
+
+The focus is:
+
+## scheduling research
+
+NOT cloud engineering.
+
+---
+
+# Immediate Next Steps
+
+## This Week
+
+### Day 1
+
+* [ ] Create repository
+* [ ] Setup FastAPI scheduler
+* [ ] Setup 2 nodes
+
+---
+
+### Day 2
+
+* [ ] Implement heartbeat system
+* [ ] Store node metrics
+
+---
+
+### Day 3
+
+* [ ] Add Docker job execution
+* [ ] Run first CPU job
+
+---
+
+### Day 4
+
+* [ ] Implement Round Robin scheduler
+* [ ] Collect execution timestamps
+
+---
+
+### Day 5
+
+* [ ] Add least-loaded policy
+* [ ] Start generating metrics
+
+---
+
+# Long-Term Vision
+
+The final system should evolve from:
+
+```text
+Static heuristics
+```
+
+toward:
+
+```text
+Adaptive intelligent scheduling
+```
+
+capable of understanding:
+
+* workload patterns
+* node specialization
+* energy/performance tradeoffs
+* heterogeneous hardware behavior
+
+in realistic edge/home-lab environments.
