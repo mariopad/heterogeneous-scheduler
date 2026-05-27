@@ -6,13 +6,17 @@ Objetivo del script: hacer que funcione esto
 """
 
 from typing import Dict, List, Optional
-from shared.schemas import NodeHeartbeat
-
+from shared.schemas import (
+    NodeHeartbeat,
+    JobRequest
+)
+from queue import Queue
 
 class ClusterState:
     def __init__(self):
         self.nodes: Dict[str, NodeHeartbeat] = {}
         self.round_robin_index = 0
+        self.job_queue = Queue()
 
     def register_heartbeat(self, heartbeat: NodeHeartbeat):
         """
@@ -25,6 +29,15 @@ class ClusterState:
 
     def get_node(self, node_id: str) -> Optional[NodeHeartbeat]:
         return self.nodes.get(node_id)
+
+    def enqueue_job(self, job: JobRequest):
+        self.job_queue.put(job)
+
+    def dequeue_job(self):
+        return self.job_queue.get()
+
+    def queue_size(self) -> int:
+        return self.job_queue.qsize()
 
     def get_next_node_round_robin(self) -> Optional[NodeHeartbeat]:
         """
