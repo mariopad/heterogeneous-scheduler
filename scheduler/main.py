@@ -63,26 +63,40 @@ def dispatch_job(job, selected_node):
         )
 
         cluster_state.enqueue_job(job)
+    
+    finally:
+        cluster_state.decrement_running_jobs(
+            selected_node.node_id
+        )
 
 
 def dispatcher_loop():
 
     while True:
 
+        selected_node = cluster_state.get_next_node_round_robin()
+
+        if selected_node is None:
+
+            nodes = cluster_state.get_nodes()
+            
+            if nodes:
+                print("[dispatcher] all nodes busy")
+            else:
+                print("[dispatcher] no connected nodes")
+
+            time.sleep(1) # Mirar esto en un futuro
+
+            continue
+
         job = cluster_state.dequeue_job()
 
         print(f"[dispatcher] picked job={job.job_id}")
 
-        selected_node = cluster_state.get_next_node_round_robin()
-
-        if selected_node is None:
-            print("[dispatcher] no nodes available")
-
-            cluster_state.enqueue_job(job)
-
-            time.sleep(1)
-
-            continue
+        # Update running_jobs in selected node
+        cluster_state.increment_running_jobs(
+            selected_node.node_id
+        )
 
         threading.Thread(
             target=dispatch_job,

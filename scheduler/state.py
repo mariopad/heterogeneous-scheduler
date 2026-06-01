@@ -17,6 +17,7 @@ class ClusterState:
         self.nodes: Dict[str, NodeHeartbeat] = {}
         self.round_robin_index = 0
         self.job_queue = Queue()
+        self.running_jobs: Dict[str, int] = {}
 
     def register_heartbeat(self, heartbeat: NodeHeartbeat):
         """
@@ -24,12 +25,18 @@ class ClusterState:
         """
         self.nodes[heartbeat.node_id] = heartbeat
 
+        if heartbeat.node_id not in self.running_jobs:
+            self.running_jobs[heartbeat.node_id] = 0
+
+    # Get nodes
     def get_nodes(self) -> List[NodeHeartbeat]:
         return list(self.nodes.values())
 
     def get_node(self, node_id: str) -> Optional[NodeHeartbeat]:
         return self.nodes.get(node_id)
 
+
+    # Queues
     def enqueue_job(self, job: JobRequest):
         self.job_queue.put(job)
 
@@ -39,20 +46,71 @@ class ClusterState:
     def queue_size(self) -> int:
         return self.job_queue.qsize()
 
+
+    # Running jobs
+    def increment_running_jobs(self, node_id: str):
+        self.running_jobs[node_id] += 1
+
+    def decrement_running_jobs(self, node_id: str):
+        self.running_jobs[node_id] -= 1
+
+    def get_running_jobs(self, node_id: str):
+        return self.running_jobs.get(node_id, 0)
+
+    # Is the node able to accept more jobs?
+    def node_has_capacity(self, node: NodeHeartbeat) -> bool:
+
+        running_jobs = self.get_running_jobs(node.node_id)
+
+        max_parallel_jobs = node.capabilities.cpus
+
+        return running_jobs < 1 # max_parallel_jobs
+
+    """
+    La dejo para explicitar que eventualmente tenemos que diferenciar
+        - Nodo existe
+        - Nodo tiene hueco
+    Para cuando implementemos diferentes policies
+    """
+
+    # Next node
+#    def get_next_node_round_robin(self) -> Optional[NodeHeartbeat]:
+#        """
+#        Select next node using Round Robin scheduling.
+#        """
+#        nodes = self.get_nodes()
+#
+#        if not nodes:
+#            return None
+#
+#        total_nodes = len(nodes)
+#
+#        node = nodes[self.round_robin_index % total_nodes]
+#
+#        self.round_robin_index += 1
+#
+#        return node
+    
+    # Iterate through the nodes and rearrange indexes
     def get_next_node_round_robin(self) -> Optional[NodeHeartbeat]:
-        """
-        Select next node using Round Robin scheduling.
-        """
+
         nodes = self.get_nodes()
 
         if not nodes:
             return None
 
-        node = nodes[self.round_robin_index % len(nodes)]
+        total_nodes = len(nodes)
 
-        self.round_robin_index += 1
+        for _ in range(total_nodes):
 
-        return node
+            node = nodes[self.round_robin_index % total_nodes]
+
+            self.round_robin_index += 1
+
+            if self.node_has_capacity(node):
+                return node
+
+        return None
 
 
 # Global singleton cluster state

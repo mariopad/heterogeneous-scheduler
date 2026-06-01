@@ -219,3 +219,52 @@ momento y, aproximadamente, a los 5 s todos terminan:
 PROBLEMA: el scheduler no contempla restricciones en la máxima cantidad de trabajos que
 podemos asignar a un nodo. Vamos a meter 50 trabajos, no se han quejao pero xd.
 """
+
+##################################################################
+# 4. Probar el scheduler (evitando oversubscription)
+##################################################################
+# Vamos a settear max_parallel_jobs=1 solo para validar -> CAMBIALO: node_has_capacity()
+""""
+Experimento:
+- 2 agentes
+- 10 jobs (sleep 5)
+
+Deberiamos ver:
+nodeA, nodeB cada uno con 1 job bloqueados
+8 trabajos en cola
+
+Duracion total aproximada de 25 s (10*5/2)
+""""
+
+# Lanzamos scheduler (T1)
+python -m uvicorn scheduler.main:app --reload --host 0.0.0.0 --port 8000
+
+# Lanzamos nodos
+NODE_ID=nodeA AGENT_PORT=9001 python -m agent.main # T2
+NODE_ID=nodeB AGENT_PORT=9002 python -m agent.main # T3
+
+# Lanzamos trabajos (misma terminal, T4)
+for i in {1..10}; do
+curl -X POST localhost:8000/jobs \
+-H "Content-Type: application/json" \
+-d "{
+  \"job_id\":\"job$i\",
+  \"image\":\"alpine\",
+  \"command\":\"sleep 5\"
+}"
+done
+
+"""
+Ocurre lo que esperábamos: 
+  - Tamaño de cola=8 para el décimo trabajo
+  - Hasta que no acaban los trabajos no se asignan nuevos trabajos
+    a los nodos
+
+Sin embargo, cuando no hay nodos disponibles, sigue iterando sobre los
+jobs. Esto no está bien.
+
+Solución: solo sacar trabajos de la cola si hay nodos disponibles
+
+Consecuencia: cluster_state.dequeue_job() bloquea; el dispatcher se queda
+esperando en esta llamada hasta que llegue un trabajo
+"""

@@ -12,7 +12,7 @@ from typing import Dict
 
 
 class NodeCapabilities(BaseModel):
-    cpus: int
+    cpus: int # max_parallel_jobs
     memory_mb: int
     gpu: bool
     architecture: str # Identificador simple nodo
@@ -23,7 +23,7 @@ class NodeHeartbeat(BaseModel):
     hostname: str
     agent_url: str
     capabilities: NodeCapabilities
-    current_load: float
+    current_load: float # Interesante para Throttling
 
 
 class JobRequest(BaseModel):
