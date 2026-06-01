@@ -1,7 +1,12 @@
 # heterogeneous-scheduler
 
 ## To-dos
-### Verify and complete the local MVP
+### Immediate: Local MVP
+- [x] Primitive scheduler
+- [x] Queue jobs
+- [x] Async Dispatch
+- [x] Cope with oversubscription 
+- [ ] Heartbeat expiration
 - [ ] Add different node selection policies
 - [ ] Benchmark metrics locally
 - [ ] Add example: think of a task and implement it
