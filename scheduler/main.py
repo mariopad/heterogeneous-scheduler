@@ -27,6 +27,44 @@ import time
 app = FastAPI(title="HeteroSched Scheduler")
 
 
+def dispatch_job(job, selected_node):
+
+    assignment = JobAssignment(
+        job_id=job.job_id,
+        image=job.image,
+        command=job.command
+    )
+
+    try:
+
+        print(
+            f"[dispatch] "
+            f"job={job.job_id} "
+            f"node={selected_node.node_id}"
+        )
+
+        response = requests.post(
+            f"{selected_node.agent_url}/execute",
+            json=assignment.model_dump()
+        )
+
+        print(
+            f"[completed] "
+            f"job={job.job_id} "
+            f"status={response.status_code}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"[dispatch error] "
+            f"job={job.job_id} "
+            f"error={e}"
+        )
+
+        cluster_state.enqueue_job(job)
+
+
 def dispatcher_loop():
 
     while True:
@@ -39,48 +77,19 @@ def dispatcher_loop():
 
         if selected_node is None:
             print("[dispatcher] no nodes available")
-            
-            time.sleep(1)
 
             cluster_state.enqueue_job(job)
+
+            time.sleep(1)
 
             continue
 
-        assignment = JobAssignment(
-            job_id=job.job_id,
-            image=job.image,
-            command=job.command
-          )
+        threading.Thread(
+            target=dispatch_job,
+            args=(job, selected_node),
+            daemon=True
+        ).start()
 
-        try:
-            print(
-                f"[dispatcher] completed "
-                f"job={job.job_id} "
-                f"status={response.status_code}"
-            )
-
-            response = requests.post(
-                f"{selected_node.agent_url}/execute",
-                json=assignment.model_dump()
-            )
-
-            print(
-                f"[dispatcher] completed "
-                f"job={job.job_id} "
-                f"status={response.status_code}"
-            )
-
-        except Exception as e:
-
-            print(
-                f"[dispatcher error] "
-                f"job={job.job_id} "
-                f"error={e}"
-            )
-
-            cluster_state.enqueue_job(job)
-
-            time.sleep(1)
 
 @app.get("/")
 def root():
@@ -155,8 +164,10 @@ def submit_job(job: JobRequest):
         "queue_size": cluster_state.queue_size()
     }
 
+@app.on_event("startup")
+def startup_event():
 
-def start_background_threads():
+    print("[startup] dispatcher thread")
 
     dispatcher_thread = threading.Thread(
         target=dispatcher_loop,
@@ -164,6 +175,3 @@ def start_background_threads():
     )
 
     dispatcher_thread.start()
-
-
-start_background_threads()

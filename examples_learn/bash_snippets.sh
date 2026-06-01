@@ -97,8 +97,8 @@ curl localhost:8000/jobs
 python -m uvicorn scheduler.main:app --reload --host 0.0.0.0 --port 8000
 
 # Levantamos un agente (1 por terminal)
-NODE_ID=node-1 python -m agent.main
-NODE_ID=node-2 python -m agent.main
+NODE_ID=node-1 AGENT_PORT=9001 python -m agent.main
+NODE_ID=node-2 AGENT_PORT=9002 python -m agent.main
 # Va mandando heartbeats cada 5 s perfecto
 
 ## Listamos 2 nodos:
@@ -159,3 +159,63 @@ curl -X POST localhost:8000/jobs \
 ## Observamos que job-1 -> node-1, job-2 -> node-2 y job-3 -> node-3
 
 # Perfecto
+
+##################################################################
+# 3. Probar el scheduler (Added: queing jobs state)
+##################################################################
+
+# Lanzamos scheduler (T1)
+python -m uvicorn scheduler.main:app --reload --host 0.0.0.0 --port 8000
+
+# Lanzamos nodos
+NODE_ID=nodeA AGENT_PORT=9001 python -m agent.main # T2
+NODE_ID=nodeB AGENT_PORT=9002 python -m agent.main # T3
+
+# Lanzamos trabajos (misma terminal, T4)
+for i in {1..5}; do
+curl -X POST localhost:8000/jobs \
+-H "Content-Type: application/json" \
+-d "{
+  \"job_id\":\"job$i\",
+  \"image\":\"alpine\",
+  \"command\":\"sleep 5\"
+}"
+done
+
+"""
+Observamos que el scheduler asigna tareas de manera completamente secuencial;
+es decir, aun teniendo varios nodos disponibles, hasta no recibir status=completed,
+no asigna otra tarea a otro nodo. Tardando un total de 25 segundos en realizar una
+tarea que debería haber completado en 15 segundos con 2 nodos.
+
+Tenemos que implementar async dispatch.
+
+Cómo hacemos esto?
+
+Muy fácil, encapsulamos la parte del loop del dispatcher que se encarga de asignar
+tareas a nodos en una función y la llamamos desde el loop principal de forma asíncrona
+(antes estábamos llamándola una vez por loop). Para llamarla de forma asíncrona usando
+threads:
+
+Llamada secuencial:
+dispatch_job(job, selected_node)
+
+Llamada asíncrona:
+threading.Thread(
+            target=dispatch_job,
+            args=(job, selected_node),
+            daemon=True
+        ).start()
+
+
+Ejecutando el mismo código de antes, observamos que ahora todos los trabajos se cogen al
+momento y, aproximadamente, a los 5 s todos terminan:
+[completed] job=job1 status=200
+[completed] job=job2 status=200
+[completed] job=job4 status=200
+[completed] job=job5 status=200
+[completed] job=job3 status=200
+
+PROBLEMA: el scheduler no contempla restricciones en la máxima cantidad de trabajos que
+podemos asignar a un nodo. Vamos a meter 50 trabajos, no se han quejao pero xd.
+"""
