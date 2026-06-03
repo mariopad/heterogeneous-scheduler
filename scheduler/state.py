@@ -16,7 +16,6 @@ import time
 class ClusterState:
     def __init__(self):
         self.nodes: Dict[str, NodeHeartbeat] = {}
-        self.round_robin_index = 0
         self.job_queue = Queue()
         self.running_jobs: Dict[str, int] = {}
         self.last_heartbeat: Dict[str, float] = {}
@@ -52,7 +51,7 @@ class ClusterState:
 
                 expired_nodes.append(node_id)
 
-        for node in expired_nodes:
+        for node_id in expired_nodes:
 
             print(f"[expiration] removing node={node_id}")
 
@@ -79,7 +78,8 @@ class ClusterState:
         self.running_jobs[node_id] += 1
 
     def decrement_running_jobs(self, node_id: str):
-        self.running_jobs[node_id] -= 1
+        if node_id in self.running_jobs:
+            self.running_jobs[node_id] -= 1
 
     def get_running_jobs(self, node_id: str):
         return self.running_jobs.get(node_id, 0)
@@ -95,27 +95,14 @@ class ClusterState:
         return running_jobs < 1 # max_parallel_jobs
 
     
+    # Get available nodes: existing and room for work
+    def get_available_nodes(self):
     
-    # Iterate through the nodes and rearrange indexes
-    def get_next_node_round_robin(self) -> Optional[NodeHeartbeat]:
-
-        nodes = self.get_nodes()
-
-        if not nodes:
-            return None
-
-        total_nodes = len(nodes)
-
-        for _ in range(total_nodes):
-
-            node = nodes[self.round_robin_index % total_nodes]
-
-            self.round_robin_index += 1
-
-            if self.node_has_capacity(node):
-                return node
-
-        return None
+        return [
+            node
+            for node in self.get_nodes()
+            if self.node_has_capacity(node)
+        ]
 
 
 # Global singleton cluster state

@@ -15,7 +15,7 @@ To-dos
         dead -> erases node -> job rescheduling
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from scheduler.state import cluster_state
 from shared.schemas import (
     NodeHeartbeat,
@@ -26,6 +26,11 @@ import requests
 import threading
 import time
 
+from scheduler.policies import RoundRobinPolicy, LeastLoadedPolicy
+
+
+policy = RoundRobinPolicy() # Cambiar a user input
+#policy = LeastLoadedPolicy()
 
 app = FastAPI(title="HeteroSched Scheduler")
 
@@ -77,7 +82,9 @@ def dispatcher_loop():
 
     while True:
 
-        selected_node = cluster_state.get_next_node_round_robin()
+        available_nodes = cluster_state.get_available_nodes()
+
+        selected_node = policy.select_node(available_nodes)
 
         if selected_node is None:
 

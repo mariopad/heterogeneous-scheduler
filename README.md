@@ -6,9 +6,10 @@
 - [x] Queue jobs
 - [x] Async Dispatch
 - [x] Cope with oversubscription 
-- [ ] Heartbeat expiration
-- [ ] Add different node selection policies
+- [x] Heartbeat expiration
+- [x] Add different node selection policies
 - [ ] Benchmark metrics locally
+    - [ ] Add a policy based on benchmark score
 - [ ] Add example: think of a task and implement it
 
 ### Jobs
