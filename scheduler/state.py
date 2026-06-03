@@ -11,6 +11,7 @@ from shared.schemas import (
     JobRequest
 )
 from queue import Queue
+import time
 
 class ClusterState:
     def __init__(self):
@@ -18,12 +19,15 @@ class ClusterState:
         self.round_robin_index = 0
         self.job_queue = Queue()
         self.running_jobs: Dict[str, int] = {}
+        self.last_heartbeat: Dict[str, float] = {}
 
     def register_heartbeat(self, heartbeat: NodeHeartbeat):
         """
         Add or update node heartbeat info.
         """
         self.nodes[heartbeat.node_id] = heartbeat
+
+        self.last_heartbeat[heartbeat.node_id] = time.time()
 
         if heartbeat.node_id not in self.running_jobs:
             self.running_jobs[heartbeat.node_id] = 0
@@ -34,6 +38,29 @@ class ClusterState:
 
     def get_node(self, node_id: str) -> Optional[NodeHeartbeat]:
         return self.nodes.get(node_id)
+
+    # Remove expired nodes
+    def remove_expired_nodes(self, timeout_seconds: int=15):
+
+        now = time.time()
+
+        expired_nodes = []
+
+        for node_id, last_seen in self.last_heartbeat.items():
+
+            if now - last_seen > timeout_seconds:
+
+                expired_nodes.append(node_id)
+
+        for node in expired_nodes:
+
+            print(f"[expiration] removing node={node_id}")
+
+            self.nodes.pop(node_id, None)
+
+            self.last_heartbeat.pop(node_id, None)
+
+            self.running_jobs.pop(node_id, None)
 
 
     # Queues
@@ -64,32 +91,10 @@ class ClusterState:
 
         max_parallel_jobs = node.capabilities.cpus
 
+        # Debug!!
         return running_jobs < 1 # max_parallel_jobs
 
-    """
-    La dejo para explicitar que eventualmente tenemos que diferenciar
-        - Nodo existe
-        - Nodo tiene hueco
-    Para cuando implementemos diferentes policies
-    """
-
-    # Next node
-#    def get_next_node_round_robin(self) -> Optional[NodeHeartbeat]:
-#        """
-#        Select next node using Round Robin scheduling.
-#        """
-#        nodes = self.get_nodes()
-#
-#        if not nodes:
-#            return None
-#
-#        total_nodes = len(nodes)
-#
-#        node = nodes[self.round_robin_index % total_nodes]
-#
-#        self.round_robin_index += 1
-#
-#        return node
+    
     
     # Iterate through the nodes and rearrange indexes
     def get_next_node_round_robin(self) -> Optional[NodeHeartbeat]:

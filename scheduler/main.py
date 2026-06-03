@@ -9,7 +9,10 @@
 """
 To-dos
     - Change selection policy
-    - Node expiration
+    - Improve node expiration workflow
+        healthy -> scheduler assigns jobs normally
+        stale -> scheduler does not assign new jobs
+        dead -> erases node -> job rescheduling
 """
 
 from fastapi import FastAPI, HTTPException
@@ -105,6 +108,15 @@ def dispatcher_loop():
         ).start()
 
 
+def expiration_loop():
+
+    while True:
+
+        cluster_state.remove_expired_nodes()
+
+        time.sleep(5) # import HEARTBEAT_INTERVAL from agent.main maybe
+
+
 @app.get("/")
 def root():
     return {"status": "scheduler running"}
@@ -131,41 +143,33 @@ def list_nodes():
     return cluster_state.get_nodes()
 
 
-# Esto bloquea, vamos a sustituirlo por queue jobs para 
-# desacoplar recepción de ejecución
+@app.get("/cluster")
+def cluster_status():
 
-# Problema: necesito hacer algo para que alguien ejecute
-# los jobs, ahora solo los pongo en cola
+    nodes = cluster_state.get_nodes()
 
-# Lo sustituyo por dispatcher_loop, que quita de la cola trabajos
-# y los asigna si puede. Si falla, añade fault tolerance. Tambien
-# sustituyo por enqueing trabajos una vez que los detectamos.
+    node_status = []
 
-# @app.post("/jobs")
-# def submit_job(job: JobRequest):
-#     """
-#     Submit a new job.
-#     """
-#     selected_node = cluster_state.get_next_node_round_robin()
-# 
-#     if selected_node is None:
-#         raise HTTPException(
-#             status_code=503,
-#             detail="No nodes available"
-#         )
-#     
-#     assignment = JobAssignment(
-#         job_id=job.job_id,
-#         image=job.image,
-#         command=job.command
-#     )
-# 
-#     response = requests.post(
-#         f"{selected_node.agent_url}/execute",
-#         json=assignment.model_dump()
-#     )
-# 
-#     return response.json()
+    for node in nodes:
+
+        node_status.append(
+            {
+                "node_id": node.node_id,
+                "load": node.current_load,
+                "running_jobs": cluster_state.get_running_jobs(
+                    node.node_id
+                ),
+                "cpus": node.capabilities.cpus,
+                "memory_mb": node.capabilities.memory_mb,
+            }
+        )
+
+    return {
+        "nodes": len(nodes),
+        "queued_jobs": cluster_state.queue_size(),
+        "node_status": node_status,
+    }
+
 
 @app.post("/jobs")
 def submit_job(job: JobRequest):
@@ -178,6 +182,7 @@ def submit_job(job: JobRequest):
         "queue_size": cluster_state.queue_size()
     }
 
+
 @app.on_event("startup")
 def startup_event():
 
@@ -189,3 +194,12 @@ def startup_event():
     )
 
     dispatcher_thread.start()
+
+    print("[startup] expiration thread")
+
+    expiration_thread = threading.Thread(
+        target=expiration_loop,
+        daemon=True
+    )
+
+    expiration_thread.start()

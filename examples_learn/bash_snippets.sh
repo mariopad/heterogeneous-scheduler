@@ -268,3 +268,52 @@ Solución: solo sacar trabajos de la cola si hay nodos disponibles
 Consecuencia: cluster_state.dequeue_job() bloquea; el dispatcher se queda
 esperando en esta llamada hasta que llegue un trabajo
 """
+
+##################################################################
+# 5. Probar node expiration strategy
+##################################################################
+
+"""
+El scheduler, hasta ahora, contemplaba los nodos que mandan al menos
+un heartbeat.
+
+El objetivo de este nuevo commit es dejar de considerar los nodos que
+no han dado pruebas de vida en un intervalo determinado de tiempo, 15s
+en nuestro caso.
+
+Para ello, ejecutamos un daemon que verifica que la última señal de
+vida esté en un intervalo razonable de tiempo. Si no lo está, elimina
+al nodo.
+
+Si el nodo volviese a estar vivo, como es lo que se simula en este
+experimento, el nodo vuelve a aparecer considerado por el scheduler.
+"""
+
+# Lanzamos scheduler (T1)
+python -m uvicorn scheduler.main:app --reload --host 0.0.0.0 --port 8000
+
+# Lanzamos nodos
+NODE_ID=nodeA AGENT_PORT=9001 python -m agent.main # T2
+NODE_ID=nodeB AGENT_PORT=9002 python -m agent.main # T3
+
+# Hacemos curl 
+curl localhost:8000/cluster
+#{"nodes":2...}
+
+# Ctrl + C sobre uno de los nodos -> Lo desconectamos
+
+# Esperamos hasta ver el log: [expiration] removing node=nodeb
+
+# Volvemos a hacer curl
+curl localhost:8000/cluster
+#{"nodes":1...}
+
+# Activamos de nuevo el nodo que hemos apagado y esperamos a 1 HB
+curl localhost:8000/cluster
+#{"nodes":2...}
+
+"""
+Todo funciona como se esperaba; sin embargo, aparece un nuevo problema:
+  - Gestionar qué hacer con los trabajos de los que se estaba encargando
+  el nodo caído
+"""
