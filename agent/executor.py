@@ -8,11 +8,15 @@ This script performs the following:
 
 import time
 import docker
+import threading
+import os
 
 from shared.schemas import (
     JobAssignment,
     JobResult,
 )
+
+SCHEDULER_URL = os.getenv("SCHEDULER_URL", "http://localhost:8000")
 
 def get_docker_client():
     try:
@@ -24,16 +28,14 @@ def get_docker_client():
 client = get_docker_client()
 
 
-def execute_job(
+def run_and_callback(
     node_id: str,
     assignment: JobAssignment
-) -> JobResult:
+):
     """
-    Execute Docker container job and measure runtime.
+    Run Docker container, measure runtime and notify scheduler.
     """
-
     start_time = time.time()
-
     success = False
     exit_code = -1
 
@@ -51,9 +53,7 @@ def execute_job(
         )
 
         result = container.wait()
-
         exit_code = result["StatusCode"]
-
         success = exit_code == 0
 
     except Exception as e:
@@ -61,10 +61,25 @@ def execute_job(
 
     runtime = time.time() - start_time
 
-    return JobResult(
+    job_result = JobResult(
         job_id=assignment.job_id,
         node_id=node_id,
         success=success,
         runtime_seconds=runtime,
         exit_code=exit_code
     )
+
+    # Callaback to scheduler
+    try:
+        requests.post(f"{SCHEDULER_URL}/job_callback", json=job_result.model_dump())
+    except Exception as e:
+        print(f"[callback error] Failed to notify scheduler: {e}")
+    
+
+    def execute_job_async(node_id: str, assignment: JobAssignment):
+        """Background thread for the job."""
+        thread = threading.thread(
+            target = run_and_callback,
+            args = (node_id, assignment),
+            daemon = True
+        )

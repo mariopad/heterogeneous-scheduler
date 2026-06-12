@@ -22,7 +22,7 @@ from shared.schemas import (
     JobAssignment
 )
 
-from agent.executor import execute_job
+from agent.executor import execute_job_async
 
 SCHEDULER_URL = os.getenv(
     "SCHEDULER_URL",
@@ -54,7 +54,7 @@ def detect_capabilities() -> NodeCapabilities:
 
     total_memory_mb = int(
         psutil.virtual_memory().total / (1024 * 1024)
-    ) # Podemos cachearlo si no
+    ) # Podemos cachearlo sino
 
     return NodeCapabilities(
         cpus=os.cpu_count() or 1,
@@ -111,12 +111,8 @@ def root():
 
 @app.post("/execute")
 def execute(assignment: JobAssignment):
-    result = execute_job(
-        node_id=NODE_ID,
-        assignment=assignment
-    )
-
-    return result
+    execute_job_async(node_id=NODE_ID, assignment=assignment)
+    return {"status": "accepted", "job_id": assignment.job_id}
 
 
 

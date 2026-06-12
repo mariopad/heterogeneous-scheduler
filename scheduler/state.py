@@ -15,25 +15,26 @@ import time
 
 class ClusterState:
     def __init__(self):
+        self.lock = threading.RLock() # evitar racing
         self.nodes: Dict[str, NodeHeartbeat] = {}
         self.job_queue = Queue()
         self.running_jobs: Dict[str, int] = {}
         self.last_heartbeat: Dict[str, float] = {}
 
     def register_heartbeat(self, heartbeat: NodeHeartbeat):
-        """
-        Add or update node heartbeat info.
-        """
-        self.nodes[heartbeat.node_id] = heartbeat
+        """Add or update node heartbeat info."""
+        with self.lock:
+            self.nodes[heartbeat.node_id] = heartbeat
 
-        self.last_heartbeat[heartbeat.node_id] = time.time()
+            self.last_heartbeat[heartbeat.node_id] = time.time()
 
-        if heartbeat.node_id not in self.running_jobs:
-            self.running_jobs[heartbeat.node_id] = 0
+            if heartbeat.node_id not in self.running_jobs:
+                self.running_jobs[heartbeat.node_id] = 0
 
     # Get nodes
     def get_nodes(self) -> List[NodeHeartbeat]:
-        return list(self.nodes.values())
+        with self.lock:
+            return list(self.nodes.values())
 
     def get_node(self, node_id: str) -> Optional[NodeHeartbeat]:
         return self.nodes.get(node_id)
@@ -43,23 +44,25 @@ class ClusterState:
 
         now = time.time()
 
-        expired_nodes = []
+        with self.lock:
 
-        for node_id, last_seen in self.last_heartbeat.items():
+            expired_nodes = []
 
-            if now - last_seen > timeout_seconds:
+            for node_id, last_seen in self.last_heartbeat.items():
 
-                expired_nodes.append(node_id)
+                if now - last_seen > timeout_seconds:
 
-        for node_id in expired_nodes:
+                    expired_nodes.append(node_id)
 
-            print(f"[expiration] removing node={node_id}")
+            for node_id in expired_nodes:
 
-            self.nodes.pop(node_id, None)
+                print(f"[expiration] removing node={node_id}")
 
-            self.last_heartbeat.pop(node_id, None)
+                self.nodes.pop(node_id, None)
 
-            self.running_jobs.pop(node_id, None)
+                self.last_heartbeat.pop(node_id, None)
+
+                self.running_jobs.pop(node_id, None)
 
 
     # Queues
@@ -75,34 +78,37 @@ class ClusterState:
 
     # Running jobs
     def increment_running_jobs(self, node_id: str):
-        self.running_jobs[node_id] += 1
+        with self.lock:
+            self.running_jobs[node_id] += 1
 
     def decrement_running_jobs(self, node_id: str):
-        if node_id in self.running_jobs:
-            self.running_jobs[node_id] -= 1
+        with self.lock:
+            if node_id in self.running_jobs:
+                self.running_jobs[node_id] -= 1
 
     def get_running_jobs(self, node_id: str):
-        return self.running_jobs.get(node_id, 0)
+        with self.lock:
+            return self.running_jobs.get(node_id, 0)
 
     # Is the node able to accept more jobs?
     def node_has_capacity(self, node: NodeHeartbeat) -> bool:
+        with self.lock:
 
-        running_jobs = self.get_running_jobs(node.node_id)
+            running_jobs = self.get_running_jobs(node.node_id)
 
-        max_parallel_jobs = node.capabilities.cpus
+            max_parallel_jobs = node.capabilities.cpus
 
-        # Debug!!
-        return running_jobs < 1 # max_parallel_jobs
+            return running_jobs <  max_parallel_jobs
 
     
     # Get available nodes: existing and room for work
     def get_available_nodes(self):
-    
-        return [
-            node
-            for node in self.get_nodes()
-            if self.node_has_capacity(node)
-        ]
+        with self.lock:
+            return [
+                node
+                for node in self.get_nodes()
+                if self.node_has_capacity(node)
+            ]
 
 
 # Global singleton cluster state

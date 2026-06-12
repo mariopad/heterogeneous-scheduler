@@ -20,7 +20,8 @@ from scheduler.state import cluster_state
 from shared.schemas import (
     NodeHeartbeat,
     JobRequest,
-    JobAssignment
+    JobAssignment,
+    JobResult
 )
 import requests
 import threading
@@ -72,10 +73,10 @@ def dispatch_job(job, selected_node):
 
         cluster_state.enqueue_job(job)
     
-    finally:
-        cluster_state.decrement_running_jobs(
-            selected_node.node_id
-        )
+    #finally:
+    #    cluster_state.decrement_running_jobs(
+    #        selected_node.node_id
+    #    )
 
 
 def dispatcher_loop():
@@ -188,6 +189,13 @@ def submit_job(job: JobRequest):
         "job_id": job.job_id,
         "queue_size": cluster_state.queue_size()
     }
+
+@app.post("/job_callback")
+def job_callback(result: JobResult):
+    cluster_state.decrement_running_jobs(result.node_id)
+    # TODO: Store result in a database/metrics store for thesis evaluation
+    print(f"[callback] job={result.job_id} success={result.success} runtime={result.runtime_seconds}")
+    return {"status": "ok"}
 
 
 @app.on_event("startup")
