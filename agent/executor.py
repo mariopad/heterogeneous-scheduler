@@ -15,8 +15,10 @@ from shared.schemas import (
     JobAssignment,
     JobResult,
 )
+import requests
 
 SCHEDULER_URL = os.getenv("SCHEDULER_URL", "http://localhost:8000")
+
 
 def get_docker_client():
     try:
@@ -24,6 +26,7 @@ def get_docker_client():
     except Exception as e:
         print("Docker not available:", e)
         return None
+    
     
 client = get_docker_client()
 
@@ -69,17 +72,19 @@ def run_and_callback(
         exit_code=exit_code
     )
 
-    # Callaback to scheduler
+    # Callback to scheduler
     try:
         requests.post(f"{SCHEDULER_URL}/job_callback", json=job_result.model_dump())
     except Exception as e:
         print(f"[callback error] Failed to notify scheduler: {e}")
     
 
-    def execute_job_async(node_id: str, assignment: JobAssignment):
-        """Background thread for the job."""
-        thread = threading.thread(
-            target = run_and_callback,
-            args = (node_id, assignment),
-            daemon = True
-        )
+def execute_job_async(node_id: str, assignment: JobAssignment):
+    """Background thread for the job."""
+    thread = threading.Thread(
+        target = run_and_callback,
+        args = (node_id, assignment),
+        daemon = True
+    )
+    thread.start()
+    #print(f"[executor] Started background thread for job={assignment.job_id}")

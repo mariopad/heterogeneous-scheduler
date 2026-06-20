@@ -317,3 +317,110 @@ Todo funciona como se esperaba; sin embargo, aparece un nuevo problema:
   - Gestionar qué hacer con los trabajos de los que se estaba encargando
   el nodo caído
 """
+
+###
+# 6. Test benchmark + parallelization + async +...
+###
+# Everything works fine!
+# Lanzamos scheduler (T1)
+python -m uvicorn scheduler.main:app --reload --host 0.0.0.0 --port 8000
+
+# Lanzamos nodos
+NODE_ID=nodeA AGENT_PORT=9001 python -m agent.main # T2
+NODE_ID=nodeB AGENT_PORT=9002 python -m agent.main # T3
+
+# Lanzamos trabajos (misma terminal, T4)
+for i in {1..16}; do
+curl -X POST localhost:8000/jobs \
+-H "Content-Type: application/json" \
+-d "{
+  \"job_id\":\"job$i\",
+  \"image\":\"alpine\",
+  \"command\":\"sleep 5\"
+}"
+done
+"""
+INFO:     127.0.0.1:55132 - "POST /heartbeat HTTP/1.1" 200 OK
+[dispatcher] picked job=job1
+INFO:     127.0.0.1:55134 - "POST /jobs HTTP/1.1" 200 OK
+[dispatch] job=job1 node=nodeA
+[dispatcher] picked job=job2
+INFO:     127.0.0.1:55138 - "POST /jobs HTTP/1.1" 200 OK
+[dispatch] job=job2 node=nodeA
+[dispatch] job=job1 accepted, status=200
+[dispatch] job=job2 accepted, status=200
+[dispatcher] picked job=job3
+[dispatch] job=job3 node=nodeA
+INFO:     127.0.0.1:55150 - "POST /jobs HTTP/1.1" 200 OK
+[dispatch] job=job3 accepted, status=200
+[dispatcher] picked job=job4
+INFO:     127.0.0.1:55164 - "POST /jobs HTTP/1.1" 200 OK
+[dispatch] job=job4 node=nodeA
+[dispatch] job=job4 accepted, status=200
+[dispatcher] picked job=job5
+[dispatch] job=job5 node=nodeA
+INFO:     127.0.0.1:55168 - "POST /jobs HTTP/1.1" 200 OK
+[dispatch] job=job5 accepted, status=200
+[dispatcher] picked job=job6
+[dispatch] job=job6 node=nodeA
+INFO:     127.0.0.1:55184 - "POST /jobs HTTP/1.1" 200 OK
+[dispatch] job=job6 accepted, status=200
+[dispatcher] picked job=job7
+INFO:     127.0.0.1:55192 - "POST /jobs HTTP/1.1" 200 OK
+[dispatch] job=job7 node=nodeA
+[dispatch] job=job7 accepted, status=200
+[dispatcher] picked job=job8
+INFO:     127.0.0.1:36756 - "POST /jobs HTTP/1.1" 200 OK
+[dispatch] job=job8 node=nodeA
+[dispatcher] all nodes busy
+[dispatch] job=job8 accepted, status=200
+INFO:     127.0.0.1:36772 - "POST /jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36788 - "POST /jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36794 - "POST /jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36798 - "POST /jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36804 - "POST /jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36812 - "POST /jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36824 - "POST /jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36836 - "POST /jobs HTTP/1.1" 200 OK
+[dispatcher] all nodes busy
+[dispatcher] all nodes busy
+INFO:     127.0.0.1:36848 - "POST /heartbeat HTTP/1.1" 200 OK
+[dispatcher] all nodes busy
+[dispatcher] all nodes busy
+[dispatcher] all nodes busy
+[dispatcher] all nodes busy
+[callback] job=job2 success=True runtime=6.6323089599609375
+INFO:     127.0.0.1:36856 - "POST /job_callback HTTP/1.1" 200 OK
+[callback] job=job1 success=True runtime=6.707631826400757
+INFO:     127.0.0.1:36858 - "POST /job_callback HTTP/1.1" 200 OK
+[callback] job=job3 success=True runtime=6.925955772399902
+INFO:     127.0.0.1:36862 - "POST /job_callback HTTP/1.1" 200 OK
+[callback] job=job4 success=True runtime=6.9032745361328125
+INFO:     127.0.0.1:36876 - "POST /job_callback HTTP/1.1" 200 OK
+[callback] job=job5 success=True runtime=7.033919334411621
+INFO:     127.0.0.1:36886 - "POST /job_callback HTTP/1.1" 200 OK
+[dispatcher] picked job=job9
+[dispatch] job=job9 node=nodeA
+[dispatcher] picked job=job10
+[dispatch] job=job10 node=nodeA
+[dispatcher] picked job=job11
+[dispatch] job=job11 node=nodeA
+[dispatcher] picked job=job12
+[dispatch] job=job12 node=nodeA
+[dispatcher] picked job=job13
+[dispatch] job=job13 node=nodeA
+[dispatcher] all nodes busy
+[dispatch] job=job12 accepted, status=200
+[callback] job=job7 success=True runtime=7.061209440231323
+INFO:     127.0.0.1:36902 - "POST /job_callback HTTP/1.1" 200 OK
+[dispatch] job=job9 accepted, status=200
+[dispatch] job=job10 accepted, status=200
+[dispatch] job=job11 accepted, status=200
+[dispatch] job=job13 accepted, status=200
+[callback] job=job8 success=True runtime=7.057347059249878
+INFO:     127.0.0.1:36904 - "POST /job_callback HTTP/1.1" 200 OK
+[callback] job=job6 success=True runtime=7.146275520324707
+INFO:     127.0.0.1:36916 - "POST /job_callback HTTP/1.1" 200 OK
+[dispatcher] picked job=job14
+[dispatch] job=job14 node=nodeA
+"""

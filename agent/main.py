@@ -10,6 +10,7 @@ Agent needs to accomplish the following:
 
 import os
 import time
+import json
 import socket
 import requests
 import psutil
@@ -23,6 +24,7 @@ from shared.schemas import (
 )
 
 from agent.executor import execute_job_async
+from agent.benchmark import benchmark_cpu
 
 SCHEDULER_URL = os.getenv(
     "SCHEDULER_URL",
@@ -40,12 +42,31 @@ AGENT_PORT = int(
 
 HEARTBEAT_INTERVAL = 5
 
+
+# Benchmark
+print(f"\n{'='*60}")
+print(f"[boot] Node {NODE_ID} starting...")
+print(f"[boot] Running hardware benchmark")
+print(f"{'='*60}\n")
+
+BENCHMARK_RESULTS = benchmark_cpu()
+
+# Guardar resultados en archivo (como mencionaste)
+with open(f"benchmarks/benchmark_{NODE_ID}.txt", "w") as f:
+    f.write(f"Node: {NODE_ID}\n")
+    f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    f.write(f"{'='*60}\n")
+    for key, value in BENCHMARK_RESULTS.items():
+        f.write(f"{key}: {value}\n")
+
+print(f"[boot] Benchmark complete! Results saved to benchmark_{NODE_ID}.txt")
+print(f"{'='*60}\n")
+
+
 app = FastAPI(title=f"Agent {NODE_ID}")
 
 
 # To-do:
-## benchmark.py usage
-### cpus -> cpu_score
 ### fix gpu detection if needed and gpu_score
 def detect_capabilities() -> NodeCapabilities:
     """
@@ -62,6 +83,17 @@ def detect_capabilities() -> NodeCapabilities:
         gpu=False,  # later
         architecture=os.uname().machine
     )
+    # return NodeCapabilities(
+    #     cpus=BENCHMARK_RESULTS.get("logical_cores", os.cpu_count() or 1),
+    #     memory_mb=BENCHMARK_RESULTS.get("total_memory_mb", 
+    #                                     int(psutil.virtual_memory().total / (1024 * 1024))),
+    #     gpu=BENCHMARK_RESULTS.get("gpu_available", False),
+    #     architecture=BENCHMARK_RESULTS.get("architecture", os.uname().machine),
+    #     # Añadir los nuevos campos de benchmark
+    #     cpu_single_core_gflops=BENCHMARK_RESULTS.get("cpu_single_core_gflops", 0.0),
+    #     cpu_multi_core_gflops=BENCHMARK_RESULTS.get("cpu_multi_core_gflops", 0.0),
+    #     cpu_scaling_efficiency_pct=BENCHMARK_RESULTS.get("cpu_scaling_efficiency_pct", 0.0),
+    # )
 
 
 def get_current_load() -> float:

@@ -1,11 +1,11 @@
-# Entorno virtual
+# Virtual env
 venv/
 
-# Cache de Python
+# Python cache
 __pycache__/
 *.pyc
 
-# Variables de entorno
+# Env vars
 .env
 
 # VSCode
@@ -13,3 +13,12 @@ __pycache__/
 
 # Logs
 *.log
+
+# Text files
+#*.txt -> requirements??
+
+# Tests
+tests/
+
+# Benchmarks
+benchmarks/

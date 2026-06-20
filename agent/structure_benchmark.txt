@@ -1,0 +1,9 @@
+agent/
+├── benchmark/
+│   ├── __init__.py      # Public API (re-exports only)
+│   ├── runner.py        # Orchestration: run_full_benchmark()
+│   ├── cpu.py           # CPU benchmarks
+│   ├── memory.py        # RAM benchmarks
+│   ├── disk.py          # Disk benchmarks
+│   └── gpu.py           # GPU benchmarks
+└── main.py

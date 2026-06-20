@@ -57,11 +57,13 @@ def dispatch_job(job, selected_node):
             json=assignment.model_dump()
         )
 
-        print(
-            f"[completed] "
-            f"job={job.job_id} "
-            f"status={response.status_code}"
-        )
+        print(f"[dispatch] job={job.job_id} accepted, status={response.status_code}")
+
+        #print(
+        #    f"[completed] "
+        #    f"job={job.job_id} "
+        #    f"status={response.status_code}"
+        #)
 
     except Exception as e:
 
@@ -71,6 +73,7 @@ def dispatch_job(job, selected_node):
             f"error={e}"
         )
 
+        cluster_state.decrement_running_jobs(selected_node.node_id)
         cluster_state.enqueue_job(job)
     
     #finally:
