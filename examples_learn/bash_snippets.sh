@@ -318,18 +318,18 @@ Todo funciona como se esperaba; sin embargo, aparece un nuevo problema:
   el nodo caído
 """
 
-###
+##################################################################
 # 6. Test benchmark + parallelization + async +...
-###
+##################################################################
 # Everything works fine!
-# Lanzamos scheduler (T1)
+
+# Launch scheduler (T1)
 python -m uvicorn scheduler.main:app --reload --host 0.0.0.0 --port 8000
 
-# Lanzamos nodos
-NODE_ID=nodeA AGENT_PORT=9001 python -m agent.main # T2
-NODE_ID=nodeB AGENT_PORT=9002 python -m agent.main # T3
+# Lanzamos nodos (logical cores)
+NODE_ID=nodeA AGENT_PORT=9001 python -m agent.main # (T2)
 
-# Lanzamos trabajos (misma terminal, T4)
+# Lanzamos trabajos (T3)
 for i in {1..16}; do
 curl -X POST localhost:8000/jobs \
 -H "Content-Type: application/json" \
@@ -339,6 +339,7 @@ curl -X POST localhost:8000/jobs \
   \"command\":\"sleep 5\"
 }"
 done
+# Scheduler logs -> think about also storing them in a file
 """
 INFO:     127.0.0.1:55132 - "POST /heartbeat HTTP/1.1" 200 OK
 [dispatcher] picked job=job1
@@ -423,4 +424,23 @@ INFO:     127.0.0.1:36904 - "POST /job_callback HTTP/1.1" 200 OK
 INFO:     127.0.0.1:36916 - "POST /job_callback HTTP/1.1" 200 OK
 [dispatcher] picked job=job14
 [dispatch] job=job14 node=nodeA
+"""
+
+"""
+- [x] Async execution
+- [x] 8 logical cores
+- [x] 5 s task + overhead
+- [x] Benchmarking works -> GIL is being freed :)
+"""
+
+
+##################################################################
+# 7. Measure docker overhead
+##################################################################
+
+time docker run --rm alpine sleep 5
+"""
+total    0m5.804s
+user     0m0.020s
+sys      0m0.030s
 """

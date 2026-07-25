@@ -1,4 +1,5 @@
 """
+scheduler/main.py
 - Initializes FastAPI
 - Receives heartbeats
 - Lists nodes
@@ -18,6 +19,7 @@ To-dos
 from fastapi import FastAPI
 from scheduler.state import cluster_state
 from shared.schemas import (
+    NodeRegistration,
     NodeHeartbeat,
     JobRequest,
     JobAssignment,
@@ -32,6 +34,12 @@ from scheduler.policies import RoundRobinPolicy, LeastLoadedPolicy
 
 policy = RoundRobinPolicy() # Cambiar a user input
 #policy = LeastLoadedPolicy()
+
+# policy_name = os.getenv("SCHEDULER_POLICY", "round_robin").lower()
+# if policy_name == "least_loaded":
+#     policy = LeastLoadedPolicy()
+# else:
+#     policy = RoundRobinPolicy()
 
 app = FastAPI(title="HeteroSched Scheduler")
 
@@ -57,13 +65,9 @@ def dispatch_job(job, selected_node):
             json=assignment.model_dump()
         )
 
-        print(f"[dispatch] job={job.job_id} accepted, status={response.status_code}")
+        response.raise_for_status()
 
-        #print(
-        #    f"[completed] "
-        #    f"job={job.job_id} "
-        #    f"status={response.status_code}"
-        #)
+        print(f"[dispatch] job={job.job_id} accepted, status={response.status_code}")
 
     except Exception as e:
 
@@ -75,11 +79,7 @@ def dispatch_job(job, selected_node):
 
         cluster_state.decrement_running_jobs(selected_node.node_id)
         cluster_state.enqueue_job(job)
-    
-    #finally:
-    #    cluster_state.decrement_running_jobs(
-    #        selected_node.node_id
-    #    )
+        return
 
 
 def dispatcher_loop():
@@ -104,6 +104,10 @@ def dispatcher_loop():
             continue
 
         job = cluster_state.dequeue_job()
+
+        if job is None:
+            time.sleep(0.5)
+            continue
 
         print(f"[dispatcher] picked job={job.job_id}")
 
@@ -131,6 +135,20 @@ def expiration_loop():
 @app.get("/")
 def root():
     return {"status": "scheduler running"}
+
+
+@app.post("/register")
+def register_node(
+    registration: NodeRegistration
+):
+    cluster_state.register_node(
+        registration
+    )
+
+    return {
+        "status": "registered",
+        "node_id": registration.node_id
+    }
 
 
 @app.post("/heartbeat")
@@ -167,11 +185,9 @@ def cluster_status():
             {
                 "node_id": node.node_id,
                 "load": node.current_load,
-                "running_jobs": cluster_state.get_running_jobs(
-                    node.node_id
-                ),
-                "cpus": node.capabilities.cpus,
-                "memory_mb": node.capabilities.memory_mb,
+                "running_jobs": node.running_jobs,
+                "cpus": node.profile.capabilities.cpus,
+                "memory_mb": node.profile.capabilities.memory_mb,
             }
         )
 

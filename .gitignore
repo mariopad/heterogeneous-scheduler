@@ -11,14 +11,12 @@ __pycache__/
 # VSCode
 .vscode/
 
-# Logs
-*.log
-
 # Text files
 #*.txt -> requirements??
 
 # Tests
 tests/
 
-# Benchmarks
-benchmarks/
+# Logs
+logs/
+*.log

@@ -1,10 +1,11 @@
 """
+agent/executor.py
+
 This script performs the following:
     - Launches Docker container
     - Launches detached
     - Launches autoremove
 """
-
 
 import time
 import docker
@@ -21,20 +22,18 @@ SCHEDULER_URL = os.getenv("SCHEDULER_URL", "http://localhost:8000")
 
 
 def get_docker_client():
+    """Get or create Docker client connection."""
     try:
         return docker.from_env()
     except Exception as e:
         print("Docker not available:", e)
         return None
-    
-    
+
+
 client = get_docker_client()
 
 
-def run_and_callback(
-    node_id: str,
-    assignment: JobAssignment
-):
+def run_and_callback(node_id: str, assignment: JobAssignment):
     """
     Run Docker container, measure runtime and notify scheduler.
     """
@@ -74,17 +73,19 @@ def run_and_callback(
 
     # Callback to scheduler
     try:
-        requests.post(f"{SCHEDULER_URL}/job_callback", json=job_result.model_dump())
+        requests.post(
+            f"{SCHEDULER_URL}/job_callback",
+            json=job_result.model_dump()
+        )
     except Exception as e:
         print(f"[callback error] Failed to notify scheduler: {e}")
-    
+
 
 def execute_job_async(node_id: str, assignment: JobAssignment):
-    """Background thread for the job."""
+    """Launch background thread for the job."""
     thread = threading.Thread(
-        target = run_and_callback,
-        args = (node_id, assignment),
-        daemon = True
+        target=run_and_callback,
+        args=(node_id, assignment),
+        daemon=True
     )
     thread.start()
-    #print(f"[executor] Started background thread for job={assignment.job_id}")

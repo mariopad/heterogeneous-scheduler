@@ -9,11 +9,11 @@ import psutil
 
 from agent.benchmark.cpu import benchmark_cpu
 from agent.benchmark.memory import benchmark_memory
-from agent.benchmark.disk import benchmark_disk
+from agent.benchmark.io import benchmark_disk
 from agent.benchmark.gpu import benchmark_gpu
 
 
-def run_full_benchmark() -> dict:
+def run_full_benchmark(capabilities) -> dict:
     """
     Runs all hardware benchmarks and returns a unified dictionary of results.
     
@@ -40,10 +40,10 @@ def run_full_benchmark() -> dict:
     # Run each benchmark in sequence
     # Each benchmark returns a dict that we merge into results
     benchmarks = [
-        ("CPU", benchmark_cpu),
-        ("Memory", benchmark_memory),
+        ("CPU", benchmark_cpu(capabilities)),
+        #("Memory", benchmark_memory),
         ("Disk", benchmark_disk),
-        ("GPU", benchmark_gpu),
+        #("GPU", benchmark_gpu),
     ]
     
     for name, benchmark_fn in benchmarks:
