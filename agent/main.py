@@ -30,6 +30,7 @@ from agent.executor import execute_job_async
 from agent.benchmark.cpu import benchmark_cpu
 from agent.benchmark.io import benchmark_disk
 from agent.benchmark.memory import benchmark_memory
+from agent.benchmark.gpu import benchmark_gpu
 from agent.benchmark.runner import run_full_benchmark
 
 
@@ -162,7 +163,8 @@ def main():
     cpu_profile = benchmark_cpu(capabilities)
     #benchmark_results = run_full_benchmark(capabilities)
     #io_profile = benchmark_disk()
-    mem_profile = benchmark_memory()
+    #mem_profile = benchmark_memory()
+    gpu_profile = benchmark_gpu()
 
     # 3. NODE PROFILE
     node_profile = NodeProfile(

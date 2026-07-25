@@ -69,7 +69,8 @@ class MEMBenchmarkProfile(BaseModel):
 
 
 class GPUBenchmarkProfile(BaseModel):
-    pass
+    gpu_available: bool
+    gpu_memory_mb: Optional[int]
 
 
 class NETBenchmarkProfile(BaseModel):

@@ -24,10 +24,7 @@ import statistics
 import psutil
 import shutil
 
-from shared.schemas import (
-    NodeCapabilities,
-    IOBenchmarkProfile,
-)
+from shared.schemas import IOBenchmarkProfile
 
 REPETITIONS = 1
 

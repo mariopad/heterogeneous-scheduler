@@ -21,10 +21,7 @@ import psutil
 import shutil
 import re
 
-from shared.schemas import (
-    NodeCapabilities,
-    MEMBenchmarkProfile,
-)
+from shared.schemas import MEMBenchmarkProfile
 
 REPETITIONS = 1
 
