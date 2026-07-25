@@ -41,8 +41,8 @@ def run_full_benchmark(capabilities) -> dict:
     # Each benchmark returns a dict that we merge into results
     benchmarks = [
         ("CPU", benchmark_cpu(capabilities)),
-        #("Memory", benchmark_memory),
-        ("Disk", benchmark_disk),
+        ("Memory", benchmark_memory),
+        #("Disk", benchmark_disk),
         #("GPU", benchmark_gpu),
     ]
     

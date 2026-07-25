@@ -58,7 +58,14 @@ class IOBenchmarkProfile(BaseModel):
 
 
 class MEMBenchmarkProfile(BaseModel):
-    pass
+    ram_seq_read_mbps_mean:float 
+    ram_seq_read_mbps_std: float
+
+    ram_seq_write_mbps_mean: float
+    ram_seq_write_mbps_std: float
+
+    ram_random_latency_us_mean: float
+    ram_random_latency_us_std: float
 
 
 class GPUBenchmarkProfile(BaseModel):
