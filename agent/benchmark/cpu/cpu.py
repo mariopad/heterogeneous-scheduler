@@ -130,8 +130,8 @@ def benchmark_cpu(capabilities: NodeCapabilities) -> CPUBenchmarkProfile:
     """
     Runs both single-core and multi-core CPU benchmarks
     """
-    print(f"[benchmark] CPU benchmark starting on {platform.machine()}...")
-    print(f"[benchmark] Detected {os.cpu_count()} logical cores")
+    print(f"[benchmark-cpu] CPU benchmark starting on {platform.machine()}...")
+    print(f"[benchmark-cpu] Detected {os.cpu_count()} logical cores")
     
     single = benchmark_cpu_single()
     multi = benchmark_cpu_multi(capabilities)
@@ -157,7 +157,7 @@ def benchmark_cpu(capabilities: NodeCapabilities) -> CPUBenchmarkProfile:
     )
     
     print(
-        f"[benchmark] CPU single={result.cpu_single_core_gflops_mean}±{result.cpu_single_core_gflops_std} "
+        f"[benchmark-cpu] CPU single={result.cpu_single_core_gflops_mean}±{result.cpu_single_core_gflops_std} "
         f"multi={result.cpu_node_gflops_mean}±{result.cpu_node_gflops_std} "
         f"eff={result.cpu_scaling_efficiency_pct}%"
     )

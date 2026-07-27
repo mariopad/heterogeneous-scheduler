@@ -159,20 +159,15 @@ def main():
     capabilities = detect_capabilities()
 
     # 2. Benchmarks
-    #print("[boot] Running CPU benchmark...")
-    cpu_profile = benchmark_cpu(capabilities)
-    #benchmark_results = run_full_benchmark(capabilities)
-    #io_profile = benchmark_disk()
-    #mem_profile = benchmark_memory()
-    gpu_profile = benchmark_gpu()
+    benchmark_results = run_full_benchmark(capabilities)
 
     # 3. NODE PROFILE
     node_profile = NodeProfile(
         capabilities=capabilities,
-        cpu=cpu_profile,
-        io=None,
-        memory=None,
-        gpu=None,
+        cpu=benchmark_results.get("cpu"),
+        io=benchmark_results.get("io"),
+        memory=benchmark_results.get("memory"),
+        gpu=benchmark_results.get("gpu"),
         network=None,
     )
 

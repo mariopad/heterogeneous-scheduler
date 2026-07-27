@@ -116,7 +116,7 @@ def benchmark_memory():
     """
     print("[benchmark-ram] Starting sysbench memory benchmark...")
     
-    # Warm-up (critical for memory tests—cold caches skew results)
+    # Warm up
     try:
         _run_sysbench_memory("seq", total_mb=256, threads=2)
     except:

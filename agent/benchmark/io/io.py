@@ -33,7 +33,7 @@ def _check_fio_available():
     return shutil.which("fio") is not None
 
 
-def _run_fio_job(name, rw, size_gb=4, bs="1m", iodepth=32, runtime=20, direct=1):
+def _run_fio_job(name, rw, size_gb=4, bs="1m", iodepth=32, runtime=20, direct=1, fsync=0):
     if not _check_fio_available():
         raise RuntimeError("fio is not installed")
 
@@ -51,6 +51,7 @@ def _run_fio_job(name, rw, size_gb=4, bs="1m", iodepth=32, runtime=20, direct=1)
         f"--runtime={runtime}",
         "--time_based",
         f"--direct={direct}",
+        f"--fsync={fsync}",
         "--group_reporting",
         "--output-format=json"
     ]
@@ -63,12 +64,6 @@ def _run_fio_job(name, rw, size_gb=4, bs="1m", iodepth=32, runtime=20, direct=1)
             raise RuntimeError(f"No JSON found in fio output:\n{output}")
         
         json_output = output[json_start:]
-
-        # DEBUG
-        print(f"[DEBUG] fio stdout length: {len(result.stdout)}")
-        print(f"[DEBUG] fio stderr: {result.stderr[:200]}")
-        print(f"[DEBUG] fio stdout (first 500 chars): {result.stdout[:500]}")
-
         return json.loads(json_output)["jobs"][0]
 
     except subprocess.CalledProcessError as e:

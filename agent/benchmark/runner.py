@@ -13,58 +13,48 @@ from agent.benchmark.io import benchmark_disk
 from agent.benchmark.gpu import benchmark_gpu
 
 
+# agent/benchmark/runner.py
+
 def run_full_benchmark(capabilities) -> dict:
     """
-    Runs all hardware benchmarks and returns a unified dictionary of results.
-    
-    This function orchestrates the execution of CPU, memory, disk, and GPU
-    benchmarks in sequence. Each benchmark is independent and can also be
-    run individually if needed.
-    
-    Returns:
-        Dictionary containing all benchmark results and node metadata:
-        - CPU: single/multi-core GFLOPS, core counts, scaling efficiency
-        - Memory: bandwidth in GB/s
-        - Disk: I/O throughput in MB/s
-        - GPU: compute GFLOPS (if available)
-        - Metadata: architecture, hostname, total memory
+    Orchestrate all benchmarks and return unified result.
     """
     print(f"\n{'='*60}")
     print(f"[benchmark] Starting full hardware benchmark")
-    print(f"[benchmark] Architecture: {platform.machine()}")
-    print(f"[benchmark] Hostname: {platform.node()}")
     print(f"{'='*60}\n")
     
     results = {}
     
-    # Run each benchmark in sequence
-    # Each benchmark returns a dict that we merge into results
-    benchmarks = [
-        ("CPU", benchmark_cpu(capabilities)),
-        ("Memory", benchmark_memory),
-        #("Disk", benchmark_disk),
-        #("GPU", benchmark_gpu),
-    ]
+    # CPU
+    print("[benchmark] Running CPU benchmark...")
+    try:
+        results["cpu"] = benchmark_cpu(capabilities)
+    except Exception as e:
+        print(f"[benchmark] ERROR in CPU benchmark: {e}")
     
-    for name, benchmark_fn in benchmarks:
-        print(f"\n[benchmark] Running {name} benchmark...")
-        try:
-            benchmark_results = benchmark_fn()
-            results.update(benchmark_results)
-        except Exception as e:
-            print(f"[benchmark] ERROR in {name} benchmark: {e}")
-            # Continue with other benchmarks even if one fails
+    # Disk I/O
+    print("[benchmark] Running Disk I/O benchmark...")
+    try:
+        results["io"] = benchmark_disk()
+    except Exception as e:
+        print(f"[benchmark] ERROR in Disk benchmark: {e}")
     
-    # Add node metadata
-    results["architecture"] = platform.machine()
-    results["hostname"] = platform.node()
-    results["total_memory_mb"] = int(psutil.virtual_memory().total / (1024 * 1024))
+    # Memory
+    print("[benchmark] Running Memory benchmark...")
+    try:
+        results["memory"] = benchmark_memory()
+    except Exception as e:
+        print(f"[benchmark] ERROR in Memory benchmark: {e}")
+    
+    # GPU
+    print("[benchmark] Running GPU detection...")
+    try:
+        results["gpu"] = benchmark_gpu()
+    except Exception as e:
+        print(f"[benchmark] ERROR in GPU benchmark: {e}")
     
     print(f"\n{'='*60}")
     print(f"[benchmark] Benchmark complete!")
-    print(f"[benchmark] Summary:")
-    for key, value in results.items():
-        print(f"  {key}: {value}")
     print(f"{'='*60}\n")
     
     return results
