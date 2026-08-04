@@ -15,9 +15,9 @@ from shared.schemas import GPUBenchmarkProfile
 def benchmark_gpu():
     """
     Detect GPU availability and memory.
-    
+
     Returns:
-        GPUCapabilities with gpu_available and gpu_memory_mb
+        GPUBenchmarkProfile with gpu_available and gpu_memory_mb
     """
     print("[benchmark-gpu] Scanning for GPUs...")
     
@@ -30,7 +30,7 @@ def benchmark_gpu():
             )
             memory_mb = int(result.stdout.strip().split('\n')[0].split()[0])
             print(f"[benchmark-gpu] Found NVIDIA GPU: {memory_mb}MB")
-            return GPUCapabilities(gpu_available=True, gpu_memory_mb=memory_mb)
+            return GPUBenchmarkProfile(gpu_available=True, gpu_memory_mb=memory_mb)
         except Exception:
             pass
     

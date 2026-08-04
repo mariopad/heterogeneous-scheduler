@@ -22,20 +22,11 @@ from shared.schemas import (
     NodeCapabilities,
     CPUBenchmarkProfile,
 )
+from shared.config import Config
 
-
-####################################
-# DEBUGGING
-####################################
-DEBUG = 1
-if DEBUG: 
-    repetitions_per_iteration = 1
-    iterations = 1
-    warmup_iterations = 1
-else: 
-    repetitions_per_iteration = 5
-    iterations = 5
-    warmup_iterations = 3
+repetitions_per_iteration = Config.BENCHMARK_CPU_ITERATIONS
+iterations = Config.BENCHMARK_CPU_ITERATIONS
+warmup_iterations = Config.BENCHMARK_CPU_WARMUP_ITERATIONS
 
 
 ####################################

@@ -25,8 +25,9 @@ import psutil
 import shutil
 
 from shared.schemas import IOBenchmarkProfile
+from shared.config import Config
 
-REPETITIONS = 1
+REPETITIONS = Config.BENCHMARK_REPETITIONS
 
 
 def _check_fio_available():

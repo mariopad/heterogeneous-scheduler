@@ -25,9 +25,11 @@ from shared.schemas import (
     JobAssignment,
     JobResult
 )
+from shared.config import Config
 import requests
 import threading
 import time
+import os
 
 from scheduler.policies import RoundRobinPolicy, LeastLoadedPolicy
 
@@ -219,6 +221,11 @@ def job_callback(result: JobResult):
 
 @app.on_event("startup")
 def startup_event():
+
+    print(f"\n{'='*60}")
+    print(f"[startup] Scheduler starting...")
+    print(f"[startup] {Config.__str__()}")
+    print(f"{'='*60}\n")
 
     print("[startup] dispatcher thread")
 

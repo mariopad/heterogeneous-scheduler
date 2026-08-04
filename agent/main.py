@@ -9,6 +9,7 @@ Agent bootstrap:
 
 
 import os
+import sys
 import time
 import json
 import socket
@@ -17,6 +18,7 @@ import psutil
 import threading
 from fastapi import FastAPI
 import platform
+import argparse
 
 from shared.schemas import (
     NodeHeartbeat,
@@ -25,6 +27,7 @@ from shared.schemas import (
     NodeCapabilities,
     JobAssignment
 )
+from shared.config import Config
 
 from agent.executor import execute_job_async
 from agent.benchmark.cpu import benchmark_cpu
@@ -146,13 +149,33 @@ def execute(assignment: JobAssignment):
 
 
 ####################################
+# ARGUMENT PARSING
+####################################
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Start a scheduler agent node with optional debug mode."
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode: reduced iterations for faster testing"
+    )
+    return parser.parse_args()
+
+
+####################################
 # MAIN
 ####################################
 def main():
+    args = parse_args()
+
+    if args.debug:
+        Config.set_debug(True)
 
     print(f"\n{'='*60}")
     print(f"[boot] Node {NODE_ID} starting...")
     print(f"[boot] Platform: {platform.machine()}")
+    print(f"[boot] {Config.__str__()}")
     print(f"{'='*60}\n")
 
     # 1. Capabilities
