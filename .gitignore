@@ -20,3 +20,10 @@ tests/
 # Logs
 logs/
 *.log
+
+# Temp
+tmp*
+
+# Claude
+CLAUDE.md
+.claude

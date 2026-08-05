@@ -28,8 +28,11 @@ from shared.schemas import (
     JobAssignment
 )
 from shared.config import Config
+from shared.logging import get_logger
 
 from agent.executor import execute_job_async
+
+logger = get_logger("agent")
 from agent.benchmark.cpu import benchmark_cpu
 from agent.benchmark.io import benchmark_disk
 from agent.benchmark.memory import benchmark_memory
@@ -94,16 +97,26 @@ def get_current_load() -> float:
 # REGISTER NODE
 ####################################
 def node_registration(registration: NodeRegistration):
-    print("[boot] Registering node...")
+    logger.info("Registering with scheduler...")
 
-    response = requests.post(
-        f"{SCHEDULER_URL}/register",
-        json=registration.model_dump()
-    )
-
-    print(
-        f"[boot] Registration status={response.status_code}"
-    )
+    try:
+        response = requests.post(
+            f"{SCHEDULER_URL}/register",
+            json=registration.model_dump()
+        )
+        response.raise_for_status()
+        logger.info(
+            "Node registered successfully",
+            scheduler_url=SCHEDULER_URL,
+            status_code=response.status_code,
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to register node: {e}",
+            scheduler_url=SCHEDULER_URL,
+            error=str(e),
+        )
+        raise
 
 
 ####################################
@@ -115,22 +128,33 @@ def send_heartbeat():
         current_load=get_current_load()
     )
 
-    response = requests.post(
-        f"{SCHEDULER_URL}/heartbeat",
-        json=heartbeat.model_dump()
-    )
-
-    print(f"[heartbeat] status={response.status_code} node={NODE_ID}")
+    try:
+        response = requests.post(
+            f"{SCHEDULER_URL}/heartbeat",
+            json=heartbeat.model_dump()
+        )
+        response.raise_for_status()
+        logger.debug(
+            f"Heartbeat sent",
+            current_load=heartbeat.current_load,
+        )
+    except Exception as e:
+        logger.warning(
+            f"Failed to send heartbeat: {e}",
+            error=str(e),
+        )
 
 
 def heartbeat_loop():
     while True:
         try:
             send_heartbeat()
-        
         except Exception as e:
-            print(f"[Heartbeat error] {e}")
-        
+            logger.error(
+                f"Heartbeat loop error: {e}",
+                error=str(e),
+            )
+
         time.sleep(HEARTBEAT_INTERVAL)
 
 
@@ -172,16 +196,21 @@ def main():
     if args.debug:
         Config.set_debug(True)
 
-    print(f"\n{'='*60}")
-    print(f"[boot] Node {NODE_ID} starting...")
-    print(f"[boot] Platform: {platform.machine()}")
-    print(f"[boot] {Config.__str__()}")
-    print(f"{'='*60}\n")
+    logger.info(
+        "Agent starting",
+        node_id=NODE_ID,
+        platform=platform.machine(),
+        config=Config.__str__(),
+        agent_port=AGENT_PORT,
+        scheduler_url=SCHEDULER_URL,
+    )
 
     # 1. Capabilities
+    logger.info("Detecting hardware capabilities...")
     capabilities = detect_capabilities()
 
     # 2. Benchmarks
+    logger.info("Running hardware benchmarks...")
     benchmark_results = run_full_benchmark(capabilities)
 
     # 3. NODE PROFILE
@@ -193,6 +222,8 @@ def main():
         gpu=benchmark_results.get("gpu"),
         network=None,
     )
+
+    logger.info("Benchmarks complete", benchmarks=list(benchmark_results.keys()))
 
     # 4. Node registration
     registration = NodeRegistration(
@@ -209,9 +240,10 @@ def main():
     with open(f"logs/benchmarks/benchmark_{NODE_ID}.txt", "w") as f:
         f.write(str(node_profile.model_dump()))
 
-    print("[boot] Benchmark complete")
+    logger.info("Benchmark results saved")
 
     # 6. Heartbeat thread
+    logger.info("Starting heartbeat thread")
     thread = threading.Thread(
         target=heartbeat_loop,
         daemon=True
@@ -219,12 +251,19 @@ def main():
     thread.start()
 
     # 7. START API
+    logger.info(
+        f"Starting agent API server",
+        host="0.0.0.0",
+        port=AGENT_PORT,
+    )
+
     import uvicorn
 
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=AGENT_PORT
+        port=AGENT_PORT,
+        log_level="warning",
     )
 
 

@@ -11,6 +11,7 @@ This script defines:
 from pydantic import BaseModel
 from typing import Optional
 from typing import Dict
+from datetime import datetime
 
 
 class NodeCapabilities(BaseModel):
@@ -116,12 +117,14 @@ class JobRequest(BaseModel):
     job_id: str
     image: str
     command: Optional[str] = None
+    submitted_at: Optional[datetime] = None
 
 
 class JobAssignment(BaseModel):
     job_id: str
     image: str
     command: Optional[str] = None
+    dispatched_at: Optional[datetime] = None
 
 
 class JobResult(BaseModel):
@@ -130,3 +133,4 @@ class JobResult(BaseModel):
     success: bool
     runtime_seconds: float
     exit_code: int
+    completed_at: Optional[datetime] = None
