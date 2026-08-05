@@ -9,7 +9,6 @@ scheduler/main.py
 
 """
 To-dos
-    - Change selection policy
     - Improve node expiration workflow
         healthy -> scheduler assigns jobs normally
         stale -> scheduler does not assign new jobs
@@ -119,9 +118,11 @@ def dispatch_job(job, selected_node):
             image=job.image,
         )
 
+        # mode="json" renders datetimes as ISO strings; a plain model_dump()
+        # hands requests a datetime object it cannot serialise.
         response = requests.post(
             f"{selected_node.agent_url}/execute",
-            json=assignment.model_dump()
+            json=assignment.model_dump(mode="json")
         )
 
         response.raise_for_status()
@@ -135,6 +136,7 @@ def dispatch_job(job, selected_node):
 
         # Persist dispatch to database
         db.dispatch_job(job.job_id, selected_node.node_id, dispatched_at)
+        cluster_state.forget_dispatch_attempts(job.job_id)
 
     except Exception as e:
         state = {
@@ -150,18 +152,52 @@ def dispatch_job(job, selected_node):
             error=str(e),
         )
 
-        cluster_state.decrement_running_jobs(selected_node.node_id)
+        cluster_state.release_slot(selected_node.node_id)
+
+        attempts = cluster_state.record_dispatch_failure(job.job_id)
+
+        if attempts >= Config.MAX_DISPATCH_ATTEMPTS:
+            cluster_state.forget_dispatch_attempts(job.job_id)
+            db.mark_job_failed(job.job_id)
+
+            logger.event(
+                "job.abandoned",
+                f"Giving up on job {job.job_id} after {attempts} dispatch attempts",
+                state=state,
+                job_id=job.job_id,
+                attempts=attempts,
+            )
+            return
+
         cluster_state.enqueue_job(job)
         return
 
 
-def dispatcher_loop():
+def select_node_for(job):
+    """
+    Block until a node has been chosen for `job` and a slot reserved on it.
+
+    Returns the reserved node. The caller owns that slot and must release it
+    if the job never runs.
+    """
+    waiting_since = None
 
     while True:
 
         available_nodes = cluster_state.get_available_nodes()
 
-        selected_node = policy.select_node(available_nodes)
+        selected_node = policy.select_node(available_nodes, job)
+
+        # A policy must return one of the candidates it was offered. Anything
+        # else would bypass the capacity check, so refuse it rather than
+        # dispatch onto a node that cannot take the job.
+        if selected_node is not None and selected_node not in available_nodes:
+            logger.error(
+                f"Policy {policy_name} returned a node that was not available",
+                job_id=job.job_id,
+                node_id=selected_node.node_id,
+            )
+            selected_node = None
 
         if selected_node is None:
 
@@ -172,19 +208,53 @@ def dispatcher_loop():
                 "running_jobs": sum(cluster_state.running_jobs.values()),
             }
 
-            if nodes:
-                logger.debug("All nodes busy, waiting...", state=state)
-            else:
-                logger.debug("No connected nodes, waiting...", state=state)
+            # Log once when the wait starts, then occasionally, so a long
+            # wait for capacity does not bury everything else in the log.
+            now = time.time()
+            if waiting_since is None:
+                waiting_since = now
+                if nodes:
+                    logger.debug("All nodes busy, waiting...", state=state)
+                else:
+                    logger.debug("No connected nodes, waiting...", state=state)
+            elif now - waiting_since > 10:
+                waiting_since = now
+                logger.debug(
+                    f"Still waiting to place job {job.job_id}",
+                    state=state,
+                    job_id=job.job_id,
+                )
 
             time.sleep(1)
             continue
 
+        # The node may have expired or filled up since get_available_nodes.
+        if not cluster_state.reserve_slot(selected_node.node_id):
+            continue
+
+        return selected_node
+
+
+def dispatcher_loop():
+    """
+    Place one queued job at a time.
+
+    The job is taken off the queue *before* a node is chosen. Selecting first
+    meant the policy was consulted on every idle poll, which advanced the
+    round-robin counter with elapsed time rather than with the job sequence
+    and made placements irreproducible between runs. Dequeuing first also
+    means the policy sees the job it is placing, which is what hardware-aware
+    and ML policies need.
+    """
+
+    while True:
+
         job = cluster_state.dequeue_job()
 
         if job is None:
-            time.sleep(0.5)
             continue
+
+        selected_node = select_node_for(job)
 
         state = {
             "nodes": len(cluster_state.get_nodes()),
@@ -193,14 +263,11 @@ def dispatcher_loop():
         }
 
         logger.info(
-            f"Selected job {job.job_id} for dispatch",
+            f"Selected node {selected_node.node_id} for job {job.job_id}",
             state=state,
             job_id=job.job_id,
-        )
-
-        # Update running_jobs in selected node
-        cluster_state.increment_running_jobs(
-            selected_node.node_id
+            node_id=selected_node.node_id,
+            policy=policy_name,
         )
 
         threading.Thread(
@@ -421,7 +488,7 @@ def submit_job(job: JobRequest):
 
 @app.post("/job_callback")
 def job_callback(result: JobResult):
-    cluster_state.decrement_running_jobs(result.node_id)
+    cluster_state.release_slot(result.node_id)
 
     # Persist job result to database
     completed_at = result.completed_at or datetime.utcnow()

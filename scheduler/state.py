@@ -26,6 +26,7 @@ class ClusterState:
         self.job_queue = Queue()
         self.running_jobs: Dict[str, int] = {}
         self.last_heartbeat: Dict[str, float] = {}
+        self.dispatch_attempts: Dict[str, int] = {}
 
     # Registry
     def register_heartbeat(self, heartbeat: NodeHeartbeat):
@@ -55,13 +56,17 @@ class ClusterState:
             else 0.0
         )
 
+        running_jobs = self.get_running_jobs(node_id)
+        cpus = max(1, registration.profile.capabilities.cpus)
+
         return NodeView(
             node_id=node_id,
             hostname=registration.hostname,
             agent_url=registration.agent_url,
             profile=registration.profile,
             current_load=current_load,
-            running_jobs=self.get_running_jobs(node_id)
+            running_jobs=running_jobs,
+            slot_occupancy=running_jobs / cpus,
         )
 
 
@@ -120,13 +125,50 @@ class ClusterState:
     def queue_empty(self):
         return self.job_queue.empty()
 
+    # Dispatch attempts
+    def record_dispatch_failure(self, job_id: str) -> int:
+        """Count a failed dispatch for a job and return the new total."""
+        with self.lock:
+            attempts = self.dispatch_attempts.get(job_id, 0) + 1
+            self.dispatch_attempts[job_id] = attempts
+            return attempts
+
+    def forget_dispatch_attempts(self, job_id: str):
+        """Drop the failure counter once a job is placed or abandoned."""
+        with self.lock:
+            self.dispatch_attempts.pop(job_id, None)
+
 
     # Running jobs
-    def increment_running_jobs(self, node_id: str):
-        with self.lock:
-            self.running_jobs[node_id] = self.running_jobs.get(node_id, 0) + 1
+    def reserve_slot(self, node_id: str) -> bool:
+        """
+        Atomically claim a job slot on a node.
 
-    def decrement_running_jobs(self, node_id: str):
+        Selection and dispatch cannot be one instruction, so a node may be
+        expired or filled by the time the dispatcher acts on the policy's
+        choice. Re-checking capacity under the lock keeps `running_jobs` from
+        exceeding the node's core count, and stops a removed node from being
+        resurrected as a phantom entry.
+
+        Returns False if the node is gone or already at capacity, in which
+        case the caller should ask the policy again.
+        """
+        with self.lock:
+            registration = self.registrations.get(node_id)
+
+            if registration is None:
+                return False
+
+            running_jobs = self.running_jobs.get(node_id, 0)
+
+            if running_jobs >= registration.profile.capabilities.cpus:
+                return False
+
+            self.running_jobs[node_id] = running_jobs + 1
+            return True
+
+    def release_slot(self, node_id: str):
+        """Give back a slot claimed by reserve_slot."""
         with self.lock:
             if node_id in self.running_jobs:
                 self.running_jobs[node_id] = max(0, self.running_jobs.get(node_id, 0) - 1)

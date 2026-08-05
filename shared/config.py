@@ -13,6 +13,11 @@ class Config:
 
     DEBUG: bool = os.getenv("DEBUG", "0").lower() in ("1", "true", "yes")
 
+    # How many times the dispatcher retries a job before giving up on it.
+    # Without a cap, a job whose image is missing on every node is requeued
+    # forever and the trace never drains.
+    MAX_DISPATCH_ATTEMPTS: int = int(os.getenv("MAX_DISPATCH_ATTEMPTS", "3"))
+
     # Benchmark repetitions and iterations
     if DEBUG:
         BENCHMARK_REPETITIONS = 1
@@ -46,5 +51,6 @@ class Config:
         return (
             f"Config(debug={cls.DEBUG}, "
             f"repetitions={cls.BENCHMARK_REPETITIONS}, "
-            f"cpu_iterations={cls.BENCHMARK_CPU_ITERATIONS})"
+            f"cpu_iterations={cls.BENCHMARK_CPU_ITERATIONS}, "
+            f"max_dispatch_attempts={cls.MAX_DISPATCH_ATTEMPTS})"
         )

@@ -109,8 +109,15 @@ class NodeView(BaseModel):
 
     profile: NodeProfile
 
-    current_load:float
+    # Measured on the agent, refreshed once per heartbeat -- lags reality.
+    current_load: float
+
+    # Owned by the scheduler, exact and updated at dispatch time.
     running_jobs: int
+
+    # running_jobs normalised by core count, in [0, 1). Lets a policy compare
+    # a 4-core board against a 12-thread desktop on equal terms.
+    slot_occupancy: float = 0.0
 
 
 class JobRequest(BaseModel):

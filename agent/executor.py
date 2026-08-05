@@ -96,7 +96,7 @@ def run_and_callback(node_id: str, assignment: JobAssignment):
     try:
         response = requests.post(
             f"{SCHEDULER_URL}/job_callback",
-            json=job_result.model_dump()
+            json=job_result.model_dump(mode="json")
         )
         response.raise_for_status()
         logger.debug(

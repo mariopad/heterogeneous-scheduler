@@ -247,6 +247,22 @@ def record_job_result(
         """, (status, job_id))
 
 
+def mark_job_failed(job_id: str) -> None:
+    """
+    Mark a job as failed without an execution result.
+
+    Used when the dispatcher gives up before the job ever ran, so there is no
+    runtime or exit code to record in job_results.
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE jobs
+            SET status = ?
+            WHERE job_id = ?
+        """, ("failed", job_id))
+
+
 def get_job(job_id: str) -> Optional[Dict]:
     """Retrieve job metadata."""
     with get_db() as conn:
