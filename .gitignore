@@ -27,3 +27,7 @@ tmp*
 # Claude
 CLAUDE.md
 .claude
+
+# Local tests
+tests/
+examples_learn/
