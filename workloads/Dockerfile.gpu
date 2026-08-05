@@ -25,13 +25,23 @@ FROM ${BASE}
 ARG INSTALL_TORCH=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-pip \
+    && apt-get install -y --no-install-recommends python3 python3-pip python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
+# Install into a virtualenv rather than into the system interpreter. The base
+# images span several Ubuntu releases: the older ones ship a pip that predates
+# --break-system-packages, the newer ones mark the system interpreter
+# externally managed and refuse the install without it. A venv needs neither.
+#
+# --system-site-packages keeps the vendor's own GPU-enabled torch visible; a
+# clean venv would shadow it and INSTALL_TORCH=0 would leave nothing to import.
+RUN python3 -m venv --system-site-packages /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
 RUN if [ "$INSTALL_TORCH" = "1" ]; then \
-        pip3 install --no-cache-dir --break-system-packages numpy torch; \
+        pip install --no-cache-dir numpy torch; \
     else \
-        pip3 install --no-cache-dir --break-system-packages numpy; \
+        pip install --no-cache-dir numpy; \
     fi \
     && rm -rf /root/.cache
 
@@ -42,5 +52,5 @@ COPY __init__.py registry.py run.py cpu.py memory.py io.py gpu.py /app/workloads
 ENV PYTHONPATH=/app \
     PYTHONUNBUFFERED=1
 
-ENTRYPOINT ["python3", "-m", "workloads.run"]
+ENTRYPOINT ["python", "-m", "workloads.run"]
 CMD ["--type", "gpu", "--size", "50"]

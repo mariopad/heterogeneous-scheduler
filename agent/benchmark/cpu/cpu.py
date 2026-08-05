@@ -24,7 +24,7 @@ from shared.schemas import (
 )
 from shared.config import Config
 
-repetitions_per_iteration = Config.BENCHMARK_CPU_ITERATIONS
+repetitions_per_iteration = Config.BENCHMARK_CPU_REPETITIONS
 iterations = Config.BENCHMARK_CPU_ITERATIONS
 warmup_iterations = Config.BENCHMARK_CPU_WARMUP_ITERATIONS
 
@@ -133,16 +133,26 @@ def benchmark_cpu(capabilities: NodeCapabilities) -> CPUBenchmarkProfile:
     multi_mean = multi["mean"]
     multi_std = multi["std"]
 
-    theoretical_max = single_mean * capabilities.physical_cores
-    
+    # Measured against the same core count the multi-core run actually used.
+    # It previously divided by physical_cores while running one worker per
+    # logical core, so on an SMT machine the efficiency was computed against a
+    # ceiling half the size of the load applied and could exceed 100%.
+    #
+    # Logical cores are the right denominator here because the scheduler's
+    # capacity model dispatches up to `cpus` concurrent jobs. On an SMT node
+    # this figure is expected to sit well below 100%: that shortfall is real
+    # information about how much a second thread per core actually buys.
+    parallel_workers = capabilities.cpus
+    theoretical_max = single_mean * parallel_workers
+
     scaling_efficiency = (multi_mean / theoretical_max * 100) if theoretical_max > 0 else 0
-    
+
     result = CPUBenchmarkProfile(
         cpu_single_core_gflops_mean=round(single_mean, 2),
         cpu_single_core_gflops_std=round(single_std, 2),
 
         cpu_node_gflops_mean=round(multi_mean, 2),
-        cpu_node_gflops_std=round(multi_std if len(multi) > 1 else 0.0, 2),
+        cpu_node_gflops_std=round(multi_std, 2),
 
         cpu_scaling_efficiency_pct=round(scaling_efficiency, 1),
     )

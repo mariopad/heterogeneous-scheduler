@@ -212,6 +212,7 @@ def main():
     # 2. Benchmarks
     logger.info("Running hardware benchmarks...")
     benchmark_results = run_full_benchmark(capabilities)
+    failed_benchmarks = benchmark_results.pop("_failed", {})
 
     # 3. NODE PROFILE
     node_profile = NodeProfile(
@@ -223,7 +224,18 @@ def main():
         network=None,
     )
 
-    logger.info("Benchmarks complete", benchmarks=list(benchmark_results.keys()))
+    if failed_benchmarks:
+        # Still register: a partially profiled node is more useful than an
+        # absent one. But say so, because the gap silently limits which
+        # policies can rank this node.
+        logger.warning(
+            f"Registering with an incomplete profile; "
+            f"{', '.join(sorted(failed_benchmarks))} unavailable",
+            failed=failed_benchmarks,
+            available=sorted(benchmark_results),
+        )
+
+    logger.info("Benchmarks complete", benchmarks=sorted(benchmark_results.keys()))
 
     # 4. Node registration
     registration = NodeRegistration(
