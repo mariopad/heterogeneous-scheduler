@@ -11,13 +11,13 @@ import time
 import docker
 import threading
 import os
-from datetime import datetime
 
 from shared.schemas import (
     JobAssignment,
     JobResult,
 )
 from shared.logging import get_logger
+from shared.timeutils import utc_now
 import requests
 
 SCHEDULER_URL = os.getenv("SCHEDULER_URL", "http://localhost:8000")
@@ -71,7 +71,7 @@ def run_and_callback(node_id: str, assignment: JobAssignment):
         )
 
     runtime = time.time() - start_time
-    completed_at = datetime.utcnow()
+    completed_at = utc_now()
 
     job_result = JobResult(
         job_id=assignment.job_id,

@@ -17,6 +17,8 @@ from datetime import datetime
 from typing import Optional, Dict, List, Any
 from contextlib import contextmanager
 
+from shared.timeutils import to_iso, utc_now
+
 DATABASE_PATH = os.getenv("SCHEDULER_DB", "scheduler.db")
 
 
@@ -39,6 +41,24 @@ def get_db():
         raise e
     finally:
         conn.close()
+
+
+def _table_columns(cursor, table: str) -> set:
+    """Column names of an existing table."""
+    cursor.execute(f"PRAGMA table_info({table})")
+    return {row[1] for row in cursor.fetchall()}
+
+
+def _migrate_schema(cursor) -> None:
+    """
+    Bring an existing database up to the current schema.
+
+    CREATE TABLE IF NOT EXISTS does nothing to a table that already exists,
+    so columns added after a database was first created have to be applied
+    explicitly. Each step is guarded, making init_db() safe to re-run.
+    """
+    if "run_id" not in _table_columns(cursor, "jobs"):
+        cursor.execute("ALTER TABLE jobs ADD COLUMN run_id TEXT")
 
 
 def init_db():
@@ -100,10 +120,32 @@ def init_db():
             )
         """)
 
+        # Runs table: one row per experiment, so results from different
+        # policies can be told apart instead of piling into one job history.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS runs (
+                run_id TEXT PRIMARY KEY,
+                label TEXT,
+                policy TEXT NOT NULL,
+                trace TEXT,
+                started_at TIMESTAMP NOT NULL,
+                finished_at TIMESTAMP,
+                cluster_snapshot TEXT,
+                notes TEXT
+            )
+        """)
+
+        _migrate_schema(cursor)
+
         # Indexes for common queries
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_jobs_status
             ON jobs(status)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_jobs_run
+            ON jobs(run_id)
         """)
 
         cursor.execute("""
@@ -131,7 +173,7 @@ def register_node(node_id: str, hostname: str, agent_url: str) -> None:
             INSERT OR REPLACE INTO nodes
             (node_id, hostname, agent_url, registered_at)
             VALUES (?, ?, ?, ?)
-        """, (node_id, hostname, agent_url, datetime.utcnow()))
+        """, (node_id, hostname, agent_url, to_iso(utc_now())))
 
 
 def save_node_profile(
@@ -167,7 +209,7 @@ def update_heartbeat(node_id: str, current_load: float) -> None:
             UPDATE nodes
             SET last_heartbeat = ?, current_load = ?
             WHERE node_id = ?
-        """, (datetime.utcnow(), current_load, node_id))
+        """, (to_iso(utc_now()), current_load, node_id))
 
 
 def get_node(node_id: str) -> Optional[Dict]:
@@ -191,21 +233,35 @@ def get_all_nodes() -> List[Dict]:
 # Job Operations
 # ============================================================================
 
-def submit_job(job_id: str, image: str, command: Optional[str] = None) -> None:
-    """Record a job submission."""
+def submit_job(
+    job_id: str,
+    image: str,
+    command: Optional[str] = None,
+    run_id: Optional[str] = None,
+    submitted_at: Optional[datetime] = None,
+) -> None:
+    """
+    Record a job submission.
+
+    `submitted_at` should be the time the client submitted the job, not the
+    time this row is written; queue wait is measured from it.
+    """
+    if submitted_at is None:
+        submitted_at = utc_now()
+
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO jobs
-            (job_id, image, command, status, submitted_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (job_id, image, command, "queued", datetime.utcnow()))
+            (job_id, image, command, status, submitted_at, run_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (job_id, image, command, "queued", to_iso(submitted_at), run_id))
 
 
 def dispatch_job(job_id: str, node_id: str, dispatched_at: Optional[datetime] = None) -> None:
     """Record job dispatch to a node."""
     if dispatched_at is None:
-        dispatched_at = datetime.utcnow()
+        dispatched_at = utc_now()
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -213,7 +269,7 @@ def dispatch_job(job_id: str, node_id: str, dispatched_at: Optional[datetime] = 
             UPDATE jobs
             SET status = ?, dispatched_at = ?, dispatched_to_node = ?
             WHERE job_id = ?
-        """, ("dispatched", dispatched_at, node_id, job_id))
+        """, ("dispatched", to_iso(dispatched_at), node_id, job_id))
 
 
 def record_job_result(
@@ -226,17 +282,17 @@ def record_job_result(
 ) -> None:
     """Record job execution result."""
     if completed_at is None:
-        completed_at = datetime.utcnow()
+        completed_at = utc_now()
 
     with get_db() as conn:
         cursor = conn.cursor()
 
         # Insert result
         cursor.execute("""
-            INSERT INTO job_results
+            INSERT OR REPLACE INTO job_results
             (job_id, node_id, success, runtime_seconds, exit_code, completed_at)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (job_id, node_id, success, runtime_seconds, exit_code, completed_at))
+        """, (job_id, node_id, success, runtime_seconds, exit_code, to_iso(completed_at)))
 
         # Update job status
         status = "completed" if success else "failed"
@@ -309,6 +365,109 @@ def get_jobs_for_node(node_id: str) -> List[Dict]:
             (node_id,)
         )
         return [dict(row) for row in cursor.fetchall()]
+
+
+# ============================================================================
+# Experiment Runs
+# ============================================================================
+
+def start_run(
+    run_id: str,
+    policy: str,
+    label: Optional[str] = None,
+    trace: Optional[str] = None,
+    cluster_snapshot: Optional[Any] = None,
+    notes: Optional[str] = None,
+) -> None:
+    """
+    Open an experiment run.
+
+    `cluster_snapshot` records which nodes took part and what they were, so a
+    result can be tied to the hardware that produced it after the fact.
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO runs
+            (run_id, label, policy, trace, started_at, cluster_snapshot, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            run_id,
+            label,
+            policy,
+            trace,
+            to_iso(utc_now()),
+            json.dumps(cluster_snapshot) if cluster_snapshot is not None else None,
+            notes,
+        ))
+
+
+def finish_run(run_id: str) -> None:
+    """Close an experiment run."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE runs SET finished_at = ? WHERE run_id = ?
+        """, (to_iso(utc_now()), run_id))
+
+
+def get_run(run_id: str) -> Optional[Dict]:
+    """Retrieve a run's metadata."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_all_runs() -> List[Dict]:
+    """Retrieve all runs, newest first."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM runs ORDER BY started_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_run_jobs(run_id: str) -> List[Dict]:
+    """
+    Every job in a run with its execution result attached.
+
+    LEFT JOIN so jobs that never completed still appear -- an experiment that
+    silently dropped jobs must be visible in the export, not absent from it.
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                j.job_id, j.image, j.command, j.status, j.run_id,
+                j.submitted_at, j.dispatched_at, j.dispatched_to_node,
+                r.success, r.runtime_seconds, r.exit_code, r.completed_at
+            FROM jobs j
+            LEFT JOIN job_results r ON j.job_id = r.job_id
+            WHERE j.run_id = ?
+            ORDER BY j.submitted_at
+        """, (run_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_run_progress(run_id: str) -> Dict[str, Any]:
+    """Status counts for a run, used to detect when a trace has drained."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
+                SUM(CASE WHEN status = 'dispatched' THEN 1 ELSE 0 END) as dispatched,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+            FROM jobs
+            WHERE run_id = ?
+        """, (run_id,))
+        row = cursor.fetchone()
+        progress = {k: (v or 0) for k, v in dict(row).items()} if row else {}
+        progress["terminal"] = progress.get("completed", 0) + progress.get("failed", 0)
+        return progress
 
 
 # ============================================================================

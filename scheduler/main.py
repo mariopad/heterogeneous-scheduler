@@ -15,7 +15,7 @@ To-dos
         dead -> erases node -> job rescheduling
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from scheduler.state import cluster_state
 from scheduler import db
 from shared.schemas import (
@@ -23,17 +23,19 @@ from shared.schemas import (
     NodeHeartbeat,
     JobRequest,
     JobAssignment,
-    JobResult
+    JobResult,
+    RunStartRequest,
 )
 from shared.config import Config
 from shared.logging import get_logger
+from shared.timeutils import utc_now
 import requests
 import threading
 import time
 import os
 import sys
+import uuid
 import argparse
-from datetime import datetime
 
 from scheduler.policies import RoundRobinPolicy, LeastLoadedPolicy
 
@@ -89,12 +91,18 @@ def get_policy_name():
 policy_name = get_policy_name()
 policy = get_policy(policy_name)
 
+# The experiment run currently accepting jobs, if any. Jobs submitted outside
+# a run are still executed and recorded, they just carry no run_id and are
+# therefore excluded from experiment exports.
+active_run_id = None
+run_lock = threading.Lock()
+
 app = FastAPI(title="HeteroSched Scheduler")
 
 
 def dispatch_job(job, selected_node):
 
-    dispatched_at = datetime.utcnow()
+    dispatched_at = utc_now()
     assignment = JobAssignment(
         job_id=job.job_id,
         image=job.image,
@@ -456,14 +464,151 @@ def node_job_summary(node_id: str):
     }
 
 
+@app.post("/runs/start")
+def start_run(request: RunStartRequest):
+    """
+    Open an experiment run.
+
+    Requires a drained cluster: a run whose measurements overlap with jobs
+    from the previous one is not a controlled experiment. The policy is
+    re-instantiated even when it is unchanged, so per-policy state such as
+    the round-robin counter always starts a run from zero.
+    """
+    global active_run_id, policy, policy_name
+
+    with run_lock:
+        if active_run_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Run {active_run_id} is still open; finish it first.",
+            )
+
+        in_flight = cluster_state.queue_size() + sum(cluster_state.running_jobs.values())
+        if in_flight > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cluster is not drained: {in_flight} job(s) still queued or running.",
+            )
+
+        if request.policy is not None:
+            try:
+                policy = get_policy(request.policy)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            policy_name = request.policy.lower()
+        else:
+            policy = get_policy(policy_name)
+
+        run_id = uuid.uuid4().hex[:12]
+
+        nodes = cluster_state.get_nodes()
+        cluster_snapshot = [
+            {
+                "node_id": n.node_id,
+                "hostname": n.hostname,
+                "cpus": n.profile.capabilities.cpus,
+                "physical_cores": n.profile.capabilities.physical_cores,
+                "memory_mb": n.profile.capabilities.memory_mb,
+                "architecture": n.profile.capabilities.architecture,
+                "gpu": n.profile.capabilities.gpu,
+            }
+            for n in nodes
+        ]
+
+        db.start_run(
+            run_id,
+            policy=policy_name,
+            label=request.label,
+            trace=request.trace,
+            cluster_snapshot=cluster_snapshot,
+            notes=request.notes,
+        )
+
+        active_run_id = run_id
+
+    logger.event(
+        "run.started",
+        f"Run {run_id} started with policy {policy_name}",
+        run_id=run_id,
+        policy=policy_name,
+        label=request.label,
+        nodes=len(cluster_snapshot),
+    )
+
+    return {
+        "run_id": run_id,
+        "policy": policy_name,
+        "label": request.label,
+        "nodes": cluster_snapshot,
+    }
+
+
+@app.post("/runs/finish")
+def finish_run():
+    """Close the open run. Jobs submitted afterwards carry no run_id."""
+    global active_run_id
+
+    with run_lock:
+        if active_run_id is None:
+            raise HTTPException(status_code=409, detail="No run is open.")
+
+        run_id = active_run_id
+        db.finish_run(run_id)
+        active_run_id = None
+
+    progress = db.get_run_progress(run_id)
+
+    logger.event(
+        "run.finished",
+        f"Run {run_id} finished",
+        run_id=run_id,
+        **progress,
+    )
+
+    return {"run_id": run_id, **progress}
+
+
+@app.get("/runs")
+def list_runs():
+    """All experiment runs, newest first."""
+    return {"active_run_id": active_run_id, "runs": db.get_all_runs()}
+
+
+@app.get("/runs/{run_id}")
+def get_run(run_id: str):
+    """Run metadata plus job status counts, used to detect a drained trace."""
+    run = db.get_run(run_id)
+
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}")
+
+    return {"run": run, "progress": db.get_run_progress(run_id)}
+
+
+@app.get("/runs/{run_id}/jobs")
+def get_run_jobs(run_id: str):
+    """Every job in a run with its execution result attached."""
+    if db.get_run(run_id) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}")
+
+    return {"run_id": run_id, "jobs": db.get_run_jobs(run_id)}
+
+
 @app.post("/jobs")
 def submit_job(job: JobRequest):
 
     cluster_state.enqueue_job(job)
 
-    # Persist to database
-    submitted_at = job.submitted_at or datetime.utcnow()
-    db.submit_job(job.job_id, job.image, job.command)
+    # Measured from when the client submitted, not when this row is written,
+    # so queue wait reflects the scheduler's delay rather than the DB's.
+    submitted_at = job.submitted_at or utc_now()
+    db.submit_job(
+        job.job_id,
+        job.image,
+        job.command,
+        run_id=active_run_id,
+        submitted_at=submitted_at,
+    )
 
     state = {
         "nodes": len(cluster_state.get_nodes()),
@@ -491,7 +636,7 @@ def job_callback(result: JobResult):
     cluster_state.release_slot(result.node_id)
 
     # Persist job result to database
-    completed_at = result.completed_at or datetime.utcnow()
+    completed_at = result.completed_at or utc_now()
     db.record_job_result(
         result.job_id,
         result.node_id,
@@ -540,7 +685,7 @@ def metrics():
     used_capacity = sum(cluster_state.running_jobs.get(n.node_id, 0) for n in nodes)
 
     return {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utc_now().isoformat(),
         "cluster": {
             "nodes_total": len(nodes),
             "nodes_available": len(available_nodes),

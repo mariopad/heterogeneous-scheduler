@@ -1,0 +1,7 @@
+{
+  "name": "burst",
+  "description": "All jobs arrive at once. Stresses placement under contention: every policy sees the same fully-populated queue, so differences come from node choice alone.",
+  "jobs": [
+    {"image": "alpine", "command": "sleep 2", "count": 16, "delay_before": 0.0}
+  ]
+}

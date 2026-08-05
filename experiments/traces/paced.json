@@ -1,0 +1,7 @@
+{
+  "name": "paced",
+  "description": "Jobs arrive every 0.5 s. The queue rarely backs up, so this measures steady-state placement rather than contention.",
+  "jobs": [
+    {"image": "alpine", "command": "sleep 2", "count": 20, "delay_before": 0.5}
+  ]
+}

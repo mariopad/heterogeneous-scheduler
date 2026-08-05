@@ -24,6 +24,10 @@ logs/
 # Temp
 tmp*
 
+# Exported experiment results (regenerable from the database with
+# python -m experiments.export <run_id>)
+results/
+
 # Claude
 CLAUDE.md
 .claude

@@ -134,6 +134,25 @@ class JobAssignment(BaseModel):
     dispatched_at: Optional[datetime] = None
 
 
+class RunStartRequest(BaseModel):
+    """Open an experiment run. Jobs submitted while it is open belong to it."""
+    label: Optional[str] = None
+    trace: Optional[str] = None
+    notes: Optional[str] = None
+
+    # Swap the active policy for this run. Omitted means keep the current one.
+    policy: Optional[str] = None
+
+
+class RunView(BaseModel):
+    run_id: str
+    label: Optional[str] = None
+    policy: str
+    trace: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+
 class JobResult(BaseModel):
     job_id: str
     node_id: str

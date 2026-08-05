@@ -10,9 +10,10 @@ Logs are output in two formats:
 
 import json
 import sys
-from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
+
+from shared.timeutils import utc_now
 
 
 class LogLevel(Enum):
@@ -54,7 +55,7 @@ class StructuredLogger:
     ) -> str:
         """Format log entry as JSON."""
         entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
             "logger": self.name,
             "level": level.value,
             "message": message,
