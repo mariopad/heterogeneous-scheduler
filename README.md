@@ -13,7 +13,8 @@
 - [ ] Add example: think of a task and implement it
 
 ### Jobs
-- [ ] Implement different kinds of workloads
+- [x] CPU, memory, I/O and GPU workloads (see `workloads/`)
+- [x] Jobs declare requirements; scheduler and agent enforce them
 
 ### Scheduler
 - [x] Run-scoped persistence (jobs tagged with the experiment that produced them)
@@ -46,9 +47,27 @@ SCHEDULER_URL=http://<scheduler-host>:8000 python -m agent.main
 
 # 3. compare two policies on the same trace and cluster
 python -m experiments.run_experiment \
-    --trace experiments/traces/burst.json \
+    --trace experiments/traces/mixed.json \
     --policy round_robin --policy least_loaded \
     --expect-nodes 6 --out results/
+```
+
+The workload image must be present on every node first -- see
+[workloads/README.md](workloads/README.md).
+
+Traces name a workload and a size rather than a raw command, and the jobs they
+produce carry that workload's declared requirements:
+
+```json
+{"name": "mixed", "shuffle": true,
+ "jobs": [{"workload": "cpu", "size": 120, "count": 8},
+          {"workload": "io",  "size": 128, "count": 6}]}
+```
+
+A single workload can also be driven straight from the CLI:
+
+```bash
+python -m experiments.run_experiment --workload cpu --size 120 --jobs 16
 ```
 
 Each run gets a `run_id`; jobs are tagged with it, so results from different
@@ -78,6 +97,14 @@ turnaround), `_nodes.csv` (per-node counts and utilisation) and
 | `makespan_s` | first submission to last completion |
 | `fairness_jobs` | Jain's index over raw per-node job counts |
 | `fairness_jobs_per_cpu` | Jain's index over jobs per core |
+| `by_workload` | every metric above, split by workload type |
+| `runtime_by_node_and_workload` | mean runtime per (node, workload) pair |
+
+`by_workload` matters on a mixed trace: an average runtime across CPU, memory
+and I/O jobs just tracks whichever type dominated the trace.
+`runtime_by_node_and_workload` is the table that exposes heterogeneity
+directly -- the same workload taking three times longer on one node than
+another is the signal a hardware-aware policy exists to exploit.
 
 The two fairness figures answer different questions. Equal job counts are not
 fair on heterogeneous hardware -- a Raspberry Pi should not receive as much

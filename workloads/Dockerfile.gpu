@@ -1,0 +1,46 @@
+# Workload image for the GPU benchmark.
+#
+# Separate from the CPU image because the accelerator stack cannot be made
+# portable: the base image has to match the vendor and, on the Jetson, the
+# L4T version of the board. Pick the BASE that matches the node.
+#
+#   # NVIDIA desktop / laptop card
+#   docker build -f Dockerfile.gpu --build-arg BASE=nvidia/cuda:12.2.0-runtime-ubuntu22.04 .
+#
+#   # Jetson Nano -- must match the installed JetPack, check with `head -1 /etc/nv_tegra_release`
+#   docker build -f Dockerfile.gpu --build-arg BASE=nvcr.io/nvidia/l4t-base:r32.7.1 .
+#
+#   # AMD RX 6600
+#   docker build -f Dockerfile.gpu --build-arg BASE=rocm/pytorch:latest .
+#
+# Run with the GPU exposed, otherwise the workload exits non-zero by design:
+#   docker run --gpus all ...                       # NVIDIA
+#   docker run --device=/dev/kfd --device=/dev/dri ...  # ROCm
+
+ARG BASE=nvidia/cuda:12.2.0-runtime-ubuntu22.04
+FROM ${BASE}
+
+# The ROCm and L4T images already carry a GPU-enabled PyTorch; installing one
+# here would replace it with a build that does not match the driver.
+ARG INSTALL_TORCH=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN if [ "$INSTALL_TORCH" = "1" ]; then \
+        pip3 install --no-cache-dir --break-system-packages numpy torch; \
+    else \
+        pip3 install --no-cache-dir --break-system-packages numpy; \
+    fi \
+    && rm -rf /root/.cache
+
+WORKDIR /app
+
+COPY __init__.py registry.py run.py cpu.py memory.py io.py gpu.py /app/workloads/
+
+ENV PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python3", "-m", "workloads.run"]
+CMD ["--type", "gpu", "--size", "50"]

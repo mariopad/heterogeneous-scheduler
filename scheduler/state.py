@@ -27,6 +27,9 @@ class ClusterState:
         self.running_jobs: Dict[str, int] = {}
         self.last_heartbeat: Dict[str, float] = {}
         self.dispatch_attempts: Dict[str, int] = {}
+        self.allocated_memory: Dict[str, int] = {}
+        # job_id -> (node_id, cpu_request, memory_mb) for what it reserved
+        self.reservations: Dict[str, tuple] = {}
 
     # Registry
     def register_heartbeat(self, heartbeat: NodeHeartbeat):
@@ -107,6 +110,7 @@ class ClusterState:
 
                 self.last_heartbeat.pop(node_id, None)
                 self.running_jobs.pop(node_id, None)
+                self.allocated_memory.pop(node_id, None)
 
 
     # Queues
@@ -139,19 +143,41 @@ class ClusterState:
             self.dispatch_attempts.pop(job_id, None)
 
 
-    # Running jobs
-    def reserve_slot(self, node_id: str) -> bool:
+    # Capacity and reservations
+    def _fits(self, registration, job: JobRequest) -> bool:
+        """Whether a node could take this job right now. Caller holds the lock."""
+        capabilities = registration.profile.capabilities
+        requirements = job.requirements
+
+        if requirements.requires_gpu and not capabilities.gpu:
+            return False
+
+        used_cpus = self.running_jobs.get(registration.node_id, 0)
+        if used_cpus + requirements.cpu_request > capabilities.cpus:
+            return False
+
+        if requirements.memory_mb is not None:
+            used_memory = self.allocated_memory.get(registration.node_id, 0)
+            if used_memory + requirements.memory_mb > capabilities.memory_mb:
+                return False
+
+        return True
+
+    def reserve_slot(self, node_id: str, job: JobRequest) -> bool:
         """
-        Atomically claim a job slot on a node.
+        Atomically claim this job's resources on a node.
 
         Selection and dispatch cannot be one instruction, so a node may be
         expired or filled by the time the dispatcher acts on the policy's
-        choice. Re-checking capacity under the lock keeps `running_jobs` from
-        exceeding the node's core count, and stops a removed node from being
-        resurrected as a phantom entry.
+        choice. Re-checking under the lock keeps usage within the node's real
+        capacity and stops a removed node from being resurrected as a phantom
+        entry.
 
-        Returns False if the node is gone or already at capacity, in which
-        case the caller should ask the policy again.
+        What was reserved is remembered per job, so release_slot can give back
+        exactly the same amount without the caller having to track it.
+
+        Returns False if the node is gone or cannot fit the job, in which case
+        the caller should ask the policy again.
         """
         with self.lock:
             registration = self.registrations.get(node_id)
@@ -159,40 +185,75 @@ class ClusterState:
             if registration is None:
                 return False
 
-            running_jobs = self.running_jobs.get(node_id, 0)
-
-            if running_jobs >= registration.profile.capabilities.cpus:
+            if not self._fits(registration, job):
                 return False
 
-            self.running_jobs[node_id] = running_jobs + 1
+            requirements = job.requirements
+            memory_mb = requirements.memory_mb or 0
+
+            self.running_jobs[node_id] = (
+                self.running_jobs.get(node_id, 0) + requirements.cpu_request
+            )
+            self.allocated_memory[node_id] = (
+                self.allocated_memory.get(node_id, 0) + memory_mb
+            )
+            self.reservations[job.job_id] = (node_id, requirements.cpu_request, memory_mb)
+
             return True
 
-    def release_slot(self, node_id: str):
-        """Give back a slot claimed by reserve_slot."""
+    def release_slot(self, job_id: str):
+        """
+        Give back what a job reserved.
+
+        Keyed by job rather than by node so it is idempotent: a duplicated
+        completion callback, or one arriving after the node already expired,
+        cannot free resources twice and drift the accounting below reality.
+        """
         with self.lock:
+            reservation = self.reservations.pop(job_id, None)
+
+            if reservation is None:
+                return
+
+            node_id, cpu_request, memory_mb = reservation
+
             if node_id in self.running_jobs:
-                self.running_jobs[node_id] = max(0, self.running_jobs.get(node_id, 0) - 1)
+                self.running_jobs[node_id] = max(
+                    0, self.running_jobs.get(node_id, 0) - cpu_request
+                )
+
+            if node_id in self.allocated_memory:
+                self.allocated_memory[node_id] = max(
+                    0, self.allocated_memory.get(node_id, 0) - memory_mb
+                )
 
     def get_running_jobs(self, node_id: str):
         with self.lock:
             return self.running_jobs.get(node_id, 0)
 
-    # Is the node able to accept more jobs?
-    def node_has_capacity(self, node: NodeView):
+    def node_has_capacity(self, node: NodeView, job: JobRequest):
+        """Whether this node can fit this job."""
         with self.lock:
-            running_jobs = self.get_running_jobs(node.node_id)
-            max_parallel_jobs = node.profile.capabilities.cpus
+            registration = self.registrations.get(node.node_id)
 
-            return running_jobs < max_parallel_jobs
+            if registration is None:
+                return False
 
-    
-    # Get available nodes: existing and room for work
-    def get_available_nodes(self):
+            return self._fits(registration, job)
+
+    def get_available_nodes(self, job: JobRequest):
+        """
+        Nodes that could run `job` right now.
+
+        Filtering is per job because feasibility depends on what is being
+        placed: a GPU job sees only GPU nodes, and a job asking for 4 GB sees
+        only nodes with that much free.
+        """
         with self.lock:
             return [
                 node
                 for node in self.get_nodes()
-                if self.node_has_capacity(node)
+                if self.node_has_capacity(node, job)
             ]
 
 

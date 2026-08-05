@@ -98,6 +98,10 @@ def job_rows(jobs: List[Dict]) -> List[Dict[str, Any]]:
             "command": job.get("command"),
             "status": job.get("status"),
             "node_id": job.get("dispatched_to_node"),
+            "workload_type": job.get("workload_type"),
+            "job_size": job.get("job_size"),
+            "cpu_request": job.get("cpu_request"),
+            "memory_mb": job.get("memory_mb"),
             "submitted_at": job.get("submitted_at"),
             "dispatched_at": job.get("dispatched_at"),
             "completed_at": job.get("completed_at"),
@@ -151,6 +155,72 @@ def node_rows(rows: List[Dict], cluster: List[Dict], makespan: Optional[float]) 
     return out
 
 
+def by_workload(rows: List[Dict]) -> Dict[str, Any]:
+    """
+    Metrics split by workload type.
+
+    A run mixing CPU, memory, I/O and GPU jobs has no meaningful average
+    runtime -- the aggregate just tracks whichever type dominated the trace.
+    The per-type breakdown is what shows that, say, I/O jobs were slow on the
+    SD-card node while CPU jobs there were fine, which is the whole argument
+    for hardware-aware placement.
+    """
+    groups: Dict[str, List[Dict]] = {}
+
+    for row in rows:
+        groups.setdefault(row.get("workload_type") or "unspecified", []).append(row)
+
+    out = {}
+    for workload_type, group in sorted(groups.items()):
+        placement: Dict[str, int] = {}
+        for row in group:
+            if row["node_id"]:
+                placement[row["node_id"]] = placement.get(row["node_id"], 0) + 1
+
+        out[workload_type] = {
+            "jobs": len(group),
+            "completed": sum(1 for r in group if r["success"] is True),
+            "failed": sum(1 for r in group if r["success"] is False),
+            "runtime_s": distribution([r["runtime_s"] for r in group]),
+            "queue_wait_s": distribution([r["queue_wait_s"] for r in group]),
+            "turnaround_s": distribution([r["turnaround_s"] for r in group]),
+            "placement": placement,
+        }
+
+    return out
+
+
+def runtime_by_node_and_workload(rows: List[Dict]) -> Dict[str, Dict[str, Any]]:
+    """
+    Mean runtime for each (node, workload type) pair.
+
+    This is the table that exposes hardware heterogeneity directly: the same
+    workload taking three times longer on one node than another is the signal
+    a hardware-aware policy exists to exploit.
+    """
+    groups: Dict[str, Dict[str, List[float]]] = {}
+
+    for row in rows:
+        if row["node_id"] is None or row["runtime_s"] is None:
+            continue
+
+        workload_type = row.get("workload_type") or "unspecified"
+        groups.setdefault(workload_type, {}).setdefault(row["node_id"], []).append(
+            row["runtime_s"]
+        )
+
+    return {
+        workload_type: {
+            node_id: {
+                "jobs": len(runtimes),
+                "mean_runtime_s": statistics.fmean(runtimes),
+            }
+            for node_id, runtimes in sorted(nodes.items())
+        }
+        for workload_type, nodes in sorted(groups.items())
+    }
+
+
 def summarise(run: Dict, jobs: List[Dict]) -> Dict[str, Any]:
     """Aggregate metrics for one run."""
     rows = job_rows(jobs)
@@ -197,4 +267,6 @@ def summarise(run: Dict, jobs: List[Dict]) -> Dict[str, Any]:
         "fairness_jobs": jains_fairness(counts),
         "fairness_jobs_per_cpu": jains_fairness(per_cpu),
         "nodes_detail": node_stats,
+        "by_workload": by_workload(rows),
+        "runtime_by_node_and_workload": runtime_by_node_and_workload(rows),
     }

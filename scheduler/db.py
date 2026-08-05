@@ -57,8 +57,22 @@ def _migrate_schema(cursor) -> None:
     so columns added after a database was first created have to be applied
     explicitly. Each step is guarded, making init_db() safe to re-run.
     """
-    if "run_id" not in _table_columns(cursor, "jobs"):
+    columns = _table_columns(cursor, "jobs")
+
+    if "run_id" not in columns:
         cursor.execute("ALTER TABLE jobs ADD COLUMN run_id TEXT")
+
+    # Declared requirements, stored per job so results can be broken down by
+    # workload type rather than averaged into a single meaningless figure.
+    for column, definition in (
+        ("workload_type", "TEXT"),
+        ("cpu_request", "INTEGER"),
+        ("memory_mb", "INTEGER"),
+        ("requires_gpu", "INTEGER"),
+        ("job_size", "INTEGER"),
+    ):
+        if column not in columns:
+            cursor.execute(f"ALTER TABLE jobs ADD COLUMN {column} {definition}")
 
 
 def init_db():
@@ -239,6 +253,7 @@ def submit_job(
     command: Optional[str] = None,
     run_id: Optional[str] = None,
     submitted_at: Optional[datetime] = None,
+    requirements: Optional[Any] = None,
 ) -> None:
     """
     Record a job submission.
@@ -249,17 +264,40 @@ def submit_job(
     if submitted_at is None:
         submitted_at = utc_now()
 
+    workload_type = cpu_request = memory_mb = requires_gpu = job_size = None
+
+    if requirements is not None:
+        workload_type = getattr(requirements.workload_type, "value",
+                                requirements.workload_type)
+        cpu_request = requirements.cpu_request
+        memory_mb = requirements.memory_mb
+        requires_gpu = int(bool(requirements.requires_gpu))
+        job_size = requirements.size
+
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO jobs
-            (job_id, image, command, status, submitted_at, run_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (job_id, image, command, "queued", to_iso(submitted_at), run_id))
+            (job_id, image, command, status, submitted_at, run_id,
+             workload_type, cpu_request, memory_mb, requires_gpu, job_size)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (job_id, image, command, "queued", to_iso(submitted_at), run_id,
+              workload_type, cpu_request, memory_mb, requires_gpu, job_size))
 
 
 def dispatch_job(job_id: str, node_id: str, dispatched_at: Optional[datetime] = None) -> None:
-    """Record job dispatch to a node."""
+    """
+    Record job dispatch to a node.
+
+    A short job can finish and call back before the dispatcher gets here, so
+    the status is only advanced when it is not already terminal. Writing
+    'dispatched' unconditionally would resurrect a finished job, leaving it
+    permanently in flight and stalling the drain check -- which is how a job
+    that failed in ten milliseconds used to hang a whole run.
+
+    The timestamp and node are still recorded either way: queue wait is
+    measured from dispatched_at, so losing it would lose the measurement.
+    """
     if dispatched_at is None:
         dispatched_at = utc_now()
 
@@ -267,9 +305,14 @@ def dispatch_job(job_id: str, node_id: str, dispatched_at: Optional[datetime] = 
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE jobs
-            SET status = ?, dispatched_at = ?, dispatched_to_node = ?
+            SET dispatched_at = ?,
+                dispatched_to_node = ?,
+                status = CASE
+                    WHEN status IN ('completed', 'failed') THEN status
+                    ELSE 'dispatched'
+                END
             WHERE job_id = ?
-        """, ("dispatched", to_iso(dispatched_at), node_id, job_id))
+        """, (to_iso(dispatched_at), node_id, job_id))
 
 
 def record_job_result(
@@ -441,6 +484,8 @@ def get_run_jobs(run_id: str) -> List[Dict]:
             SELECT
                 j.job_id, j.image, j.command, j.status, j.run_id,
                 j.submitted_at, j.dispatched_at, j.dispatched_to_node,
+                j.workload_type, j.cpu_request, j.memory_mb, j.requires_gpu,
+                j.job_size,
                 r.success, r.runtime_seconds, r.exit_code, r.completed_at
             FROM jobs j
             LEFT JOIN job_results r ON j.job_id = r.job_id

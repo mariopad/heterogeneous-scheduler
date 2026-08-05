@@ -1,0 +1,11 @@
+{
+  "name": "mixed",
+  "description": "CPU, memory and I/O jobs interleaved. This is the trace that makes heterogeneity visible: each type stresses a different subsystem, so nodes that look equivalent on core count alone separate here. Shuffled so no policy benefits from types arriving in blocks.",
+  "shuffle": true,
+  "seed": 1,
+  "jobs": [
+    {"workload": "cpu",    "size": 120, "count": 8},
+    {"workload": "memory", "size": 256, "count": 6},
+    {"workload": "io",     "size": 128, "count": 6}
+  ]
+}

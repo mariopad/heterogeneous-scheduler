@@ -22,6 +22,7 @@ round-robin counter starts from zero and a run is reproducible.
 import argparse
 import json
 import os
+import random
 import sys
 import time
 import uuid
@@ -60,17 +61,48 @@ def load_trace(path: str) -> Dict:
     return trace
 
 
-def expand_trace(trace: Dict) -> List[Dict]:
-    """Flatten a trace into the individual jobs to submit, in order."""
+def expand_trace(trace: Dict, image: str) -> List[Dict]:
+    """
+    Flatten a trace into the individual jobs to submit, in order.
+
+    An entry naming a `workload` is turned into a call to the workload image
+    and given that workload's default requirements, so a trace stays short
+    while the jobs still declare what they need. Anything the entry sets
+    explicitly under `requirements` wins over those defaults.
+    """
+    from workloads.registry import requirements_for
+
     jobs = []
 
     for entry in trace["jobs"]:
+        workload = entry.get("workload")
+
+        if workload:
+            size = int(entry.get("size", 100))
+            requirements = requirements_for(workload, size)
+            requirements["size"] = size
+            command = entry.get("command") or f"--type {workload} --size {size}"
+            job_image = entry.get("image", image)
+        else:
+            requirements = {}
+            command = entry.get("command")
+            job_image = entry.get("image", image)
+
+        requirements.update(entry.get("requirements", {}))
+
         for _ in range(int(entry.get("count", 1))):
             jobs.append({
-                "image": entry["image"],
-                "command": entry.get("command"),
+                "image": job_image,
+                "command": command,
+                "requirements": requirements,
                 "delay_before": float(entry.get("delay_before", 0.0)),
             })
+
+    if trace.get("shuffle"):
+        # Interleave workload types instead of running them in blocks, so a
+        # policy cannot look good merely because the trace happened to feed
+        # it one type at a time.
+        random.Random(trace.get("seed", 0)).shuffle(jobs)
 
     return jobs
 
@@ -136,6 +168,7 @@ def submit_jobs(scheduler: str, jobs: List[Dict], prefix: str) -> int:
             "image": job["image"],
             "command": job["command"],
             "submitted_at": utc_now().isoformat(),
+            "requirements": job.get("requirements") or {},
         }
 
         response = requests.post(f"{scheduler}/jobs", json=payload, timeout=30)
@@ -187,6 +220,17 @@ def build_trace(args) -> Dict:
     if args.trace:
         return load_trace(args.trace)
 
+    if args.workload:
+        return {
+            "name": f"cli-{args.jobs}x{args.workload}{args.size}",
+            "jobs": [{
+                "workload": args.workload,
+                "size": args.size,
+                "count": args.jobs,
+                "delay_before": args.interval,
+            }],
+        }
+
     return {
         "name": f"cli-{args.jobs}x{args.image}",
         "jobs": [{
@@ -214,15 +258,19 @@ def main() -> int:
 
     parser.add_argument("--trace", help="Trace file to submit.")
     parser.add_argument("--jobs", type=int, default=16, help="Job count when no trace file.")
-    parser.add_argument("--image", default="alpine", help="Image when no trace file.")
-    parser.add_argument("--command", default="sleep 2", help="Command when no trace file.")
+    parser.add_argument("--workload", help="Workload from the suite: cpu, memory, io or gpu.")
+    parser.add_argument("--size", type=int, default=100, help="Workload scale.")
+    parser.add_argument("--image", default=os.getenv("WORKLOAD_IMAGE", "heterosched/workload:latest"),
+                        help="Image running the workload suite.")
+    parser.add_argument("--command", default="sleep 2",
+                        help="Command when neither --trace nor --workload is given.")
     parser.add_argument("--interval", type=float, default=0.0,
                         help="Seconds between submissions; 0 submits as a burst.")
 
     args = parser.parse_args()
 
     trace = build_trace(args)
-    jobs = expand_trace(trace)
+    jobs = expand_trace(trace, image=args.image)
 
     nodes = wait_for_nodes(args.scheduler, args.expect_nodes, timeout=60)
     print(f"cluster ready: {len(nodes)} node(s), "

@@ -1,0 +1,10 @@
+{
+  "name": "gpu",
+  "description": "GPU jobs mixed with CPU jobs. GPU jobs declare requires_gpu, so only nodes reporting a GPU are candidates; they fail by design anywhere else, which is what makes the constraint testable.",
+  "shuffle": true,
+  "seed": 1,
+  "jobs": [
+    {"workload": "gpu", "size": 40, "count": 4},
+    {"workload": "cpu", "size": 120, "count": 8}
+  ]
+}

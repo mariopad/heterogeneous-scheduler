@@ -8,10 +8,11 @@ This script defines:
     - Results
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
-from typing import Dict
+from typing import Dict, Literal
 from datetime import datetime
+from enum import Enum
 
 
 class NodeCapabilities(BaseModel):
@@ -120,11 +121,60 @@ class NodeView(BaseModel):
     slot_occupancy: float = 0.0
 
 
+class WorkloadType(str, Enum):
+    """
+    Which subsystem a job mainly stresses.
+
+    This is the field that lets a hardware-aware policy reason about fit: a
+    memory-bound job belongs on the node with the best measured bandwidth,
+    not merely on the one with the most idle cores.
+    """
+    CPU = "cpu"
+    MEMORY = "memory"
+    IO = "io"
+    GPU = "gpu"
+    MIXED = "mixed"
+
+
+class JobRequirements(BaseModel):
+    """
+    What a job needs, declared by whoever submits it.
+
+    Kept as one object rather than loose fields on JobRequest because this is
+    also the feature vector a learned policy will consume, and because the
+    scheduler has to pass the whole thing to the agent so the declaration is
+    actually enforced on the container instead of being advisory.
+    """
+
+    workload_type: WorkloadType = WorkloadType.MIXED
+
+    #: Slots the job occupies on a node. The capacity model counts these, so a
+    #: job that really uses four cores must say so or it will oversubscribe.
+    cpu_request: int = Field(default=1, ge=1)
+
+    #: Applied as a hard container limit by the agent. None means unlimited.
+    memory_mb: Optional[int] = Field(default=None, ge=1)
+
+    #: Nodes without a GPU are not candidates at all when this is set.
+    requires_gpu: bool = False
+
+    #: Submitter's rough expectation. Advisory only -- unlike `size` it is a
+    #: guess, so nothing load-bearing should depend on it, but it is a cheap
+    #: feature for a learned policy and useful for grouping results.
+    expected_duration_class: Optional[Literal["short", "medium", "long"]] = None
+
+    #: The workload's scale parameter, when the job came from the workload
+    #: suite. Objective, unlike expected_duration_class.
+    size: Optional[int] = None
+
+
 class JobRequest(BaseModel):
     job_id: str
     image: str
     command: Optional[str] = None
     submitted_at: Optional[datetime] = None
+
+    requirements: JobRequirements = Field(default_factory=JobRequirements)
 
 
 class JobAssignment(BaseModel):
@@ -132,6 +182,8 @@ class JobAssignment(BaseModel):
     image: str
     command: Optional[str] = None
     dispatched_at: Optional[datetime] = None
+
+    requirements: JobRequirements = Field(default_factory=JobRequirements)
 
 
 class RunStartRequest(BaseModel):

@@ -107,7 +107,10 @@ def dispatch_job(job, selected_node):
         job_id=job.job_id,
         image=job.image,
         command=job.command,
-        dispatched_at=dispatched_at
+        dispatched_at=dispatched_at,
+        # Carried through so the agent can enforce the declaration on the
+        # container rather than leaving it as an unchecked claim.
+        requirements=job.requirements,
     )
 
     try:
@@ -160,7 +163,7 @@ def dispatch_job(job, selected_node):
             error=str(e),
         )
 
-        cluster_state.release_slot(selected_node.node_id)
+        cluster_state.release_slot(job.job_id)
 
         attempts = cluster_state.record_dispatch_failure(job.job_id)
 
@@ -192,7 +195,7 @@ def select_node_for(job):
 
     while True:
 
-        available_nodes = cluster_state.get_available_nodes()
+        available_nodes = cluster_state.get_available_nodes(job)
 
         selected_node = policy.select_node(available_nodes, job)
 
@@ -237,7 +240,7 @@ def select_node_for(job):
             continue
 
         # The node may have expired or filled up since get_available_nodes.
-        if not cluster_state.reserve_slot(selected_node.node_id):
+        if not cluster_state.reserve_slot(selected_node.node_id, job):
             continue
 
         return selected_node
@@ -608,6 +611,7 @@ def submit_job(job: JobRequest):
         job.command,
         run_id=active_run_id,
         submitted_at=submitted_at,
+        requirements=job.requirements,
     )
 
     state = {
@@ -633,7 +637,7 @@ def submit_job(job: JobRequest):
 
 @app.post("/job_callback")
 def job_callback(result: JobResult):
-    cluster_state.release_slot(result.node_id)
+    cluster_state.release_slot(result.job_id)
 
     # Persist job result to database
     completed_at = result.completed_at or utc_now()
@@ -677,7 +681,12 @@ def metrics():
     Useful for monitoring dashboards and understanding scheduler behavior.
     """
     nodes = cluster_state.get_nodes()
-    available_nodes = cluster_state.get_available_nodes()
+
+    # Availability is per job now, so this reports it for a nominal
+    # single-slot job with no special requirements.
+    probe = JobRequest(job_id="__metrics_probe__", image="")
+    available_nodes = cluster_state.get_available_nodes(probe)
+
     job_stats = db.get_job_statistics()
 
     # Calculate node utilization

@@ -22,6 +22,7 @@ from experiments.metrics import summarise, job_rows
 
 JOB_COLUMNS = [
     "job_id", "image", "command", "status", "node_id",
+    "workload_type", "job_size", "cpu_request", "memory_mb",
     "submitted_at", "dispatched_at", "completed_at",
     "queue_wait_s", "runtime_s", "turnaround_s", "overhead_s",
     "success", "exit_code",
@@ -125,6 +126,19 @@ def format_summary(summary: Dict) -> str:
             for n in summary["nodes_detail"]
         ),
     ]
+
+    breakdown = summary.get("by_workload") or {}
+    if len(breakdown) > 1 or set(breakdown) - {"unspecified"}:
+        lines.append("  by workload")
+        for workload_type, stats in breakdown.items():
+            placement = " ".join(f"{node}={count}"
+                                 for node, count in sorted(stats["placement"].items()))
+            lines.append(
+                f"    {workload_type:<12} {stats['jobs']:>3} jobs  "
+                f"runtime mean {fmt(stats['runtime_s']['mean'])} s  "
+                f"wait mean {fmt(stats['queue_wait_s']['mean'])} s  [{placement}]"
+            )
+
     return "\n".join(lines)
 
 
