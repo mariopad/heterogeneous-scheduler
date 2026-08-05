@@ -32,21 +32,63 @@ import requests
 import threading
 import time
 import os
+import sys
+import argparse
 from datetime import datetime
 
 from scheduler.policies import RoundRobinPolicy, LeastLoadedPolicy
 
 logger = get_logger("scheduler")
 
+# Policy registry
+POLICIES = {
+    "round_robin": RoundRobinPolicy,
+    "least_loaded": LeastLoadedPolicy,
+}
 
-policy = RoundRobinPolicy() # Cambiar a user input
-#policy = LeastLoadedPolicy()
 
-# policy_name = os.getenv("SCHEDULER_POLICY", "round_robin").lower()
-# if policy_name == "least_loaded":
-#     policy = LeastLoadedPolicy()
-# else:
-#     policy = RoundRobinPolicy()
+def parse_args():
+    """Parse command-line arguments for the scheduler."""
+    parser = argparse.ArgumentParser(
+        description="Start the distributed scheduler."
+    )
+    parser.add_argument(
+        "--policy",
+        type=str,
+        default="round_robin",
+        choices=list(POLICIES.keys()),
+        help=f"Scheduling policy to use (default: round_robin)",
+    )
+    return parser.parse_args()
+
+
+def get_policy(policy_name: str):
+    """Get policy instance by name."""
+    policy_name = policy_name.lower()
+    if policy_name not in POLICIES:
+        raise ValueError(
+            f"Unknown policy: {policy_name}. Available: {', '.join(POLICIES.keys())}"
+        )
+    return POLICIES[policy_name]()
+
+
+def get_policy_name():
+    """Determine policy from CLI arg or env var (CLI takes precedence)."""
+    # Try to parse CLI args (works when running directly, not with uvicorn)
+    try:
+        if "uvicorn" not in sys.argv[0]:
+            args = parse_args()
+            return args.policy
+    except:
+        pass
+
+    # Fall back to environment variable
+    return os.getenv("SCHEDULER_POLICY", "round_robin")
+
+
+# Initialize policy at module load time
+policy_name = get_policy_name()
+policy = get_policy(policy_name)
 
 app = FastAPI(title="HeteroSched Scheduler")
 
@@ -480,11 +522,13 @@ def startup_event():
         "Scheduler starting",
         config=Config.__str__(),
         database=db.DATABASE_PATH,
+        policy=policy_name,
     )
 
     # Initialize database
     db.init_db()
     logger.info(f"Database initialized: {db.DATABASE_PATH}")
+    logger.info(f"Using scheduling policy: {policy_name}")
 
     logger.info("Starting dispatcher thread")
 
